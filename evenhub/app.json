@@ -1,0 +1,17 @@
+{
+  "package_id": "com.anxiong.healthglance",
+  "edition": "202601",
+  "name": "健康速览",
+  "version": "0.1.0",
+  "min_sdk_version": "0.0.16",
+  "min_app_version": "2.2.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "从你配置的个人服务读取已同步的睡眠、活动和运动摘要。",
+      "whitelist": ["http://localhost:8787", "http://127.0.0.1:8787"]
+    }
+  ],
+  "supported_languages": ["zh", "en"]
+}

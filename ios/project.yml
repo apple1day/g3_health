@@ -1,0 +1,78 @@
+name: G3Health
+options:
+  bundleIdPrefix: com.anxiong
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: zh-Hans
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: Config/Debug.xcconfig
+  Release: Config/Release.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    SUPPORTS_MACCATALYST: NO
+    SWIFT_STRICT_CONCURRENCY: targeted
+targets:
+  G3Health:
+    type: application
+    platform: iOS
+    sources:
+      - path: G3Health
+        excludes:
+          - Resources/Info.plist
+          - Resources/Info-Debug.plist
+          - Resources/G3Health.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(HEALTH_BUNDLE_IDENTIFIER)"
+        PRODUCT_NAME: G3Health
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: G3Health/Resources/G3Health.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+      configs:
+        Debug:
+          INFOPLIST_FILE: G3Health/Resources/Info-Debug.plist
+        Release:
+          INFOPLIST_FILE: G3Health/Resources/Info.plist
+    dependencies:
+      - sdk: HealthKit.framework
+      - sdk: Security.framework
+    attributes:
+      SystemCapabilities:
+        com.apple.HealthKit:
+          enabled: 1
+  G3HealthTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: G3HealthTests
+    dependencies:
+      - target: G3Health
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(HEALTH_BUNDLE_IDENTIFIER).tests"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/G3Health.app/G3Health"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  G3Health:
+    build:
+      targets:
+        G3Health: all
+        G3HealthTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - G3HealthTests
+      gatherCoverageData: true
+    archive:
+      config: Release

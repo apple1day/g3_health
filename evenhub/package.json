@@ -1,0 +1,27 @@
+{
+  "name": "g3-health-evenhub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "preview": "vite preview --host 0.0.0.0",
+    "configure": "node scripts/configure.mjs",
+    "pack": "npm run build && node scripts/pack.mjs"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.16"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.2.0",
+    "typescript": "5.9.3",
+    "vite": "6.4.6",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
+  }
+}

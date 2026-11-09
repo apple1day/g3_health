@@ -1,0 +1,33 @@
+# Secrets and personal health data
+.env
+.env.*
+!.env.example
+**/Signing.local.xcconfig
+server/data/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.mobileprovision
+*.p12
+*.p8
+*.pem
+
+# Generated dependencies / builds
+**/node_modules/
+**/dist/
+**/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+ios/*.xcodeproj/
+ios/*.xcworkspace/
+**/xcuserdata/
+**/DerivedData/
+**/.build/
+*.xcresult/
+artifacts/
+*.ehpk
+*.log

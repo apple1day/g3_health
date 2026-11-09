@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "dataMode": "demo",
+  "generatedAt": "2026-11-09T02:00:00Z",
+  "timeZone": "Asia/Shanghai",
+  "day": "2026-11-09",
+  "sourcePolicy": "healthKit",
+  "sleep": {
+    "status": "ok",
+    "startedAt": "2026-11-08T15:10:00Z",
+    "endedAt": "2026-11-08T23:10:00Z",
+    "totalMinutes": 430,
+    "coreMinutes": 245,
+    "deepMinutes": 70,
+    "remMinutes": 100,
+    "unspecifiedMinutes": 15,
+    "awakeMinutes": 30,
+    "sourceName": "演示 Apple Watch"
+  },
+  "activity": {
+    "status": "ok",
+    "steps": 6820,
+    "distanceMeters": 4810,
+    "activeEnergyKcal": 328,
+    "exerciseMinutes": 24,
+    "standHours": 7,
+    "activeEnergyGoalKcal": 500,
+    "exerciseGoalMinutes": 30,
+    "standGoalHours": 12,
+    "moveMode": "energy",
+    "moveMinutes": null,
+    "moveGoalMinutes": null
+  },
+  "heartRate": {
+    "status": "ok",
+    "bpm": 72,
+    "measuredAt": "2026-11-09T01:52:00Z"
+  },
+  "workout": {
+    "status": "ok",
+    "kind": "户外跑步",
+    "startedAt": "2026-11-08T10:00:00Z",
+    "endedAt": "2026-11-08T10:32:00Z",
+    "durationSeconds": 1920,
+    "distanceMeters": 5020,
+    "activeEnergyKcal": 320
+  },
+  "warnings": [
+    "演示数据，用于界面测试，不代表你的健康记录。"
+  ]
+}

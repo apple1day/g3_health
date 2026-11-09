@@ -1,0 +1,110 @@
+name: Validate Health Glance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: health-glance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  relay:
+    name: Relay contract and access tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: server/requirements*.txt
+      - name: Install test dependencies
+        run: python -m pip install -r server/requirements-dev.txt
+      - name: Test relay
+        working-directory: server
+        run: python -m unittest discover -s tests -v
+
+  evenhub:
+    name: Plugin typecheck, tests and production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evenhub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: evenhub/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: health-glance-web
+          path: evenhub/dist
+          retention-days: 7
+
+  ios:
+    name: iOS simulator build and unit tests
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec ios/project.yml --project ios
+      - name: Select installed simulator
+        run: echo "SIMULATOR_ID=$(python3 scripts/select-simulator.py)" >> "$GITHUB_ENV"
+      - name: Build and test
+        run: |
+          mkdir -p artifacts
+          xcodebuild test -project ios/G3Health.xcodeproj -scheme G3Health \
+            -configuration Debug -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -resultBundlePath artifacts/G3Health-tests.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Check Release build
+        run: >-
+          xcodebuild build -project ios/G3Health.xcodeproj -scheme G3Health
+          -configuration Release -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-test-results
+          path: artifacts/G3Health-tests.xcresult
+          retention-days: 7
+
+  browser:
+    name: Browser and relay integration
+    needs: [relay, evenhub]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: health-glance-web
+          path: evenhub/dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser test dependencies
+        run: python -m pip install -r server/requirements-dev.txt playwright==1.62.0
+      - run: python -m playwright install --with-deps chromium
+      - run: python scripts/browser-smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-test-screenshots
+          path: artifacts/browser
+          retention-days: 7
