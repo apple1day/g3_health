@@ -50,6 +50,7 @@ func New(c config.Config, repo store.Repository) *gin.Engine {
 	})
 	s := &Server{cfg: c, repo: repo}
 	r.Use(s.cors)
+	s.historyRoutes(r)
 	r.GET("/healthz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()

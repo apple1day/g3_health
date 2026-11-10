@@ -17,6 +17,7 @@ struct G3HealthApp: App {
                 .task { await model.foregroundRefresh() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { Task { await model.foregroundRefresh() } }
+                    else { HistorySyncModel.shared.pause() }
                 }
         }
     }

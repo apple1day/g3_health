@@ -12,6 +12,7 @@ struct Palette {
 struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingSettings = false
+    @State private var showingHistory = false
 
     var body: some View {
         NavigationStack {
@@ -74,12 +75,16 @@ struct DashboardView: View {
             .navigationTitle("健康速览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingHistory = true } label: { Label("历史", systemImage: "clock.arrow.circlepath") }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showingSettings = true } label: { Image(systemName: "slider.horizontal.3") }
                         .accessibilityLabel("设置与眼镜同步")
                 }
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
+            .sheet(isPresented: $showingHistory) { HistoryView() }
         }
     }
 
