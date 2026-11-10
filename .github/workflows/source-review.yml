@@ -1,0 +1,20 @@
+name: Tracked source review
+on:
+  push:
+    branches: [feat/no-token-local-use]
+    paths: [.github/workflows/source-review.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: git archive --format=zip --output=/tmp/tracked-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tracked-source-review
+          path: /tmp/tracked-source.zip
+          retention-days: 1
