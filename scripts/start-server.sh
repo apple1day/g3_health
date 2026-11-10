@@ -7,4 +7,4 @@ if [ ! -f "$ROOT_DIR/backend/config.local.yaml" ]; then
   exit 1
 fi
 cd "$ROOT_DIR/backend"
-exec go run ./cmd/health-server serve "$@"
+exec go run -tags nomsgpack ./cmd/health-server serve "$@"

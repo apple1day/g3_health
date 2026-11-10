@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium } from '@playwright/test';
 if (process.env.HEALTH_E2E !== 'isolated-ci-database') throw new Error('E2E requires an isolated CI database');
+const privateConfig = await readFile('../backend/config.local.yaml', 'utf8');
+if (!/^\s*db-name:\s*["']?g3_health_ci["']?\s*$/m.test(privateConfig)) throw new Error('E2E refuses any database other than g3_health_ci');
 const base = 'http://127.0.0.1:8787';
 const credential = role => execFileSync('./health-server', ['token', '--role', role], { cwd: '../backend', encoding: 'utf8' }).trim();
 const upload = credential('upload'), read = credential('read'), admin = credential('admin');

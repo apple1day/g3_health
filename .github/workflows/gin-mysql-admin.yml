@@ -7,7 +7,7 @@ on:
     paths: ['backend/**', 'web-admin/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -77,6 +77,17 @@ jobs:
           for script in scripts/*.sh *.sh; do bash -n "$script"; done
           git check-ignore backend/config.local.yaml
           if git ls-files --error-unmatch backend/config.local.yaml 2>/dev/null; then exit 1; fi
+      - name: Pin generated lockfiles on the isolated implementation branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/gin-mysql-admin'
+        run: |
+          find backend -name '*.go' -type f -print0 | xargs -0 gofmt -w
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend/go.mod backend/go.sum web-admin/package-lock.json
+          find backend -name '*.go' -type f -print0 | xargs -0 git add --
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'build: pin verified dependencies and format Go sources'
+          git push origin HEAD:refs/heads/feat/gin-mysql-admin
       - uses: actions/upload-artifact@v4
         if: always()
         with:

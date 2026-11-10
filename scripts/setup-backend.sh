@@ -13,10 +13,10 @@ if [ ! -f config.local.yaml ]; then
     printf '\n' >&2
     export MYSQL_PASSWORD
   fi
-  go run ./cmd/health-server init-config
+  go run -tags nomsgpack ./cmd/health-server init-config
   unset MYSQL_PASSWORD
 fi
-go run ./cmd/health-server migrate --create-database
+go run -tags nomsgpack ./cmd/health-server migrate --create-database
 cd "$ROOT_DIR/web-admin"
 if [ -f package-lock.json ]; then npm ci; else npm install; fi
 npm run build

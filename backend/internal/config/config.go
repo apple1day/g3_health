@@ -85,7 +85,8 @@ func (c Config) DriverConfig(withoutDatabase bool) (*mysql.Config,error) {
  m:=mysql.NewConfig();m.User=c.MySQL.Username;m.Passwd=c.MySQL.Password;m.Net="tcp";m.Addr=net.JoinHostPort(c.MySQL.Path,c.MySQL.Port);m.DBName=c.MySQL.DBName
  if withoutDatabase {m.DBName=""}
  m.ParseTime=true;m.Loc=time.Local;m.Timeout=5*time.Second;m.ReadTimeout=15*time.Second;m.WriteTimeout=15*time.Second
- m.Params=map[string]string{"charset":"utf8mb4"}
+ // Charset is a driver option (SET NAMES), not a MySQL system variable.
+ if err=m.Apply(mysql.Charset("utf8mb4",""));err!=nil{return nil,errors.New("无法配置 MySQL utf8mb4 字符集")}
  for key,values:=range params {
   if len(values)!=1{return nil,errors.New("MySQL config 不允许重复参数")};v:=values[0]
   switch key {
