@@ -1,41 +1,15 @@
 import Foundation
 import Security
 
-struct TokenStore {
-    private var service: String { (Bundle.main.bundleIdentifier ?? "com.anxiong.g3health") + ".relay" }
-    private let account = "upload-token"
-
-    func read() -> String? {
+/// Upgrade cleanup is scoped to this app's old relay entry. No credentials are used.
+enum LegacyRelayCredential {
+    static func remove() {
+        let service = (Bundle.main.bundleIdentifier ?? "com.anxiong.g3health") + ".relay"
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: account,
-            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
-        var value: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
-              let data = value as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func save(_ token: String) throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: account]
-        let update: [String: Any] = [kSecValueData as String: Data(token.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
-        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var item = query
-            update.forEach { item[$0.key] = $0.value }
-            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw StorageFailure.keychain }
-        } else if status != errSecSuccess { throw StorageFailure.keychain }
-    }
-
-    func delete() {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: account]
+            kSecAttrService as String: service, kSecAttrAccount as String: "upload-token"]
         SecItemDelete(query as CFDictionary)
     }
 }
-
-enum StorageFailure: Error { case keychain }
 
 struct SnapshotCache {
     private func fileURL() throws -> URL {

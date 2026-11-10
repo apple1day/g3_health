@@ -1,10 +1,10 @@
 name: Gin MySQL Vue validation
 on:
   push:
-    branches: [main, feat/gin-mysql-admin]
-    paths: ['backend/**', 'web-admin/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
+    branches: [main, feat/gin-mysql-admin, feat/no-token-local-use]
+    paths: ['backend/**', 'web-admin/**', 'evenhub/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
   pull_request:
-    paths: ['backend/**', 'web-admin/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
+    paths: ['backend/**', 'web-admin/**', 'evenhub/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -53,6 +53,11 @@ jobs:
           npm ci
           npm run audit
           npm test
+          npm run build
+      - name: Build Even plugin for no-token integration
+        working-directory: evenhub
+        run: |
+          npm ci
           npm run build
       - name: Start isolated test server
         working-directory: backend

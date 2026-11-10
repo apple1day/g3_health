@@ -1,3 +1,9 @@
+# 当前 0.3 验证说明
+
+0.3 的执行结果以对应提交的 GitHub Actions 为准。当前检查覆盖免 Token 的 API、旧配置、Vue 自动加载及 Even 实际 Gin/MySQL 联调、iOS 模拟器构建与单元测试。未声称已完成实体 iPhone、Apple Watch、G2 或锁屏验收。
+
+以下为历史版本记录，不代表 0.3 仍使用 Token：
+
 # 验证记录 · 0.1.0 (1)
 
 代码建立日期：2026-11-09。以下是代码交付准备阶段实际执行的检查；远程编译与后续变化以 [GitHub Actions](https://github.com/apple1day/g3_health/actions/workflows/ci.yml) 的对应提交记录为准。

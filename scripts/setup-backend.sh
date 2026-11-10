@@ -22,6 +22,6 @@ if [ -f package-lock.json ]; then npm ci; else npm install; fi
 npm run build
 echo '配置完成。启动：bash start-server.sh'
 echo '管理后台：http://127.0.0.1:8787/admin/'
-echo '复制上传令牌：bash copy-token.sh upload'
-echo '复制后台令牌：bash copy-token.sh admin'
-echo '密码与令牌只在 backend/config.local.yaml 中；请勿提交或截图分享。'
+echo '免 Token：iPhone / Even 只填服务地址；后台直接打开，无需登录。'
+echo '警告：仅用于可信局域网。能连接服务的人也能读取、上传、删除全部历史；禁止公网映射。'
+echo '数据库密码仍在 backend/config.local.yaml 中；请勿提交或截图分享。'

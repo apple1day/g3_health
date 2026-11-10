@@ -16,7 +16,7 @@ npm ci
 npm run dev
 ```
 
-打开 `http://localhost:5173`，点击 **开启演示**。也可以填写个人服务地址和 `READ_TOKEN` 读取真实摘要。`UPLOAD_TOKEN` 不能用于这里。
+打开 `http://localhost:5173`，点击 **开启演示**。也可以填写个人服务地址读取真实摘要，无需 Token。
 
 ## 2. 同一 Wi-Fi 的手机 / G2 本地测试
 
@@ -34,14 +34,14 @@ cd evenhub
 npx evenhub qr --url http://192.168.1.8:5173
 ```
 
-用 Even App 的开发者入口扫码。设置页的服务地址填 `http://192.168.1.8:8787`，密钥填写服务的 `READ_TOKEN`。手机上的 `localhost` 是手机自身，不是 Mac。
+用 Even App 的开发者入口扫码。设置页的服务地址填 `http://192.168.1.8:8787`，不再填写密钥。手机上的 `localhost` 是手机自身，不是 Mac。
 
-本地 HTTP 必须显式指定 `--allow-local-http`，仅接受 localhost、私有 IPv4 或 `.local` 地址。正式部署应使用 HTTPS。
+本地 HTTP 必须显式指定 `--allow-local-http`，仅接受 localhost、私有 IPv4 或 `.local` 地址。正式构建仍需 HTTPS，但本版服务无身份认证，只能在可信私有网络使用。
 
 插件网络需要同时满足：
 
 1. `app.json` 的 `network.whitelist` 包含服务完整 origin（含协议与端口）。
-2. 服务允许当前 WebView origin 的 CORS。本机开发可以显式设置 `ALLOWED_ORIGINS=*`，Bearer 密钥仍然必需。
+2. 服务允许当前 WebView origin 的 CORS。在 `backend/config.local.yaml` 的 `server.allowed-origins` 中允许实际 origin；CORS 不代替身份认证。
 3. iPhone 和 Mac 网络可互通，macOS 防火墙允许服务端口。
 
 更改白名单后，Beta 包需要重新打包安装。设置页中改地址不会修改已安装包的权限。
@@ -67,9 +67,9 @@ npm run pack
 
 ## 配置保存与数据
 
-默认不持久保存只读密钥，也不把健康摘要写入浏览器磁盘。用户勾选“在此设备记住连接配置”后，服务地址和只读密钥会保存在本机 `localStorage`（不是系统钥匙串）。再次打开时自动尝试读取；不需要保存时取消勾选或点击“清除本机配置和缓存”。清除仅作用于本机，服务端删除在 iPhone App 里操作。
+默认不保存服务地址或健康摘要。勾选“记住连接配置”后只保存 `{origin}` 到 localStorage；升级时删除旧配置中的 Token，保留地址。再次打开按地址读取，无需密钥。清除仅作用于本机，服务端数据在 iPhone 中删除。
 
-请求使用 `Authorization: Bearer ...`，不将密钥写入 URL；拒绝 HTTP 重定向，以避免凭据随重定向流出。生产使用 HTTPS。服务返回的健康字段与错误消息不通过 `innerHTML` 注入，不在控制台打印。
+**免 Token 服务只适合可信局域网。任何可达客户端都能访问健康数据，勿映射公网。**
 
 ## 检查
 

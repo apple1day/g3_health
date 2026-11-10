@@ -14,7 +14,4 @@ server:
   allowed-origins:
     - http://localhost:5173
     - http://127.0.0.1:5173
-security:
-  upload-token: ""  # generated/reused from server/.env on first setup
-  read-token: ""
-  admin-token: ""   # separate read-only administration credential
+# No authentication. Trusted LAN only. Do not expose this port to the internet.

@@ -6,7 +6,7 @@ struct RelayFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// A scoped bearer token never enters a URL or a redirected request.
+/// Local single-user relay: no token/cookies; health payloads never follow redirects.
 final class RelayClient: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     static var allowsLocalHTTP: Bool {
         #if DEBUG
@@ -46,15 +46,7 @@ final class RelayClient: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
             || (numbers[0] == 172 && (16...31).contains(numbers[1]))
     }
 
-    static func validateToken(_ value: String) throws -> String {
-        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (32...256).contains(token.count), token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }) else {
-            throw RelayFailure(code: "invalidToken", message: "请填写服务生成的 UPLOAD_TOKEN（至少 32 位），不要填写 READ_TOKEN。")
-        }
-        return token
-    }
-
-    static func uploadRequest(snapshot: HealthSnapshot, base: String, token: String,
+    static func uploadRequest(snapshot: HealthSnapshot, base: String,
                               allowLocalHTTP: Bool = allowsLocalHTTP) throws -> URLRequest {
         guard snapshot.dataMode == .healthkit else {
             throw RelayFailure(code: "demoBlocked", message: "演示数据不能上传，请先读取 Apple 健康。")
@@ -64,23 +56,25 @@ final class RelayClient: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         }
         var request = URLRequest(url: try endpoint(base: base, allowLocalHTTP: allowLocalHTTP))
         request.httpMethod = "PUT"
-        request.setValue("Bearer " + (try validateToken(token)), forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try HealthSnapshot.encoder.encode(snapshot)
         request.timeoutInterval = 15
         return request
     }
 
-    func upload(_ snapshot: HealthSnapshot, base: String, token: String) async throws {
-        try await execute(Self.uploadRequest(snapshot: snapshot, base: base, token: token))
+    func upload(_ snapshot: HealthSnapshot, base: String) async throws {
+        try await execute(Self.uploadRequest(snapshot: snapshot, base: base))
     }
 
-    func delete(base: String, token: String) async throws {
-        var request = URLRequest(url: try Self.endpoint(base: base))
+    static func deleteRequest(base: String, allowLocalHTTP: Bool = allowsLocalHTTP) throws -> URLRequest {
+        var request = URLRequest(url: try endpoint(base: base, allowLocalHTTP: allowLocalHTTP))
         request.httpMethod = "DELETE"
-        request.setValue("Bearer " + (try Self.validateToken(token)), forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 15
-        try await execute(request)
+        return request
+    }
+
+    func delete(base: String) async throws {
+        try await execute(Self.deleteRequest(base: base))
     }
 
     private func execute(_ request: URLRequest) async throws {
@@ -100,7 +94,7 @@ final class RelayClient: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         }
         switch http.statusCode {
         case 200..<300: return
-        case 401, 403: throw RelayFailure(code: "unauthorized", message: "同步令牌不正确或角色不匹配，请核对 UPLOAD_TOKEN。")
+        case 401, 403: throw RelayFailure(code: "unauthorized", message: "服务拒绝连接，请确认已更新为免 Token 后端，并检查服务地址和访问限制。")
         case 409: throw RelayFailure(code: "stale", message: "服务已有更新的数据，请重新读取健康数据后再同步，并检查手机时间。")
         case 400, 413, 422: throw RelayFailure(code: "invalidSnapshot", message: "服务未接受此摘要，请更新 App 与服务到同一版本并导出诊断。")
         case 300..<400: throw RelayFailure(code: "redirectBlocked", message: "服务发生了重定向，请直接填写最终 HTTPS 地址。")

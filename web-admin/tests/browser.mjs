@@ -1,29 +1,28 @@
 // Synthetic end-to-end records only. Never run this against a personal database.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFile, mkdir } from 'node:fs/promises';
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 if (process.env.HEALTH_E2E !== 'isolated-ci-database') throw new Error('E2E requires an isolated CI database');
 const privateConfig = await readFile('../backend/config.local.yaml', 'utf8');
 if (!/^\s*db-name:\s*["']?g3_health_ci["']?\s*$/m.test(privateConfig)) throw new Error('E2E refuses any database other than g3_health_ci');
 const base = 'http://127.0.0.1:8787';
-const credential = role => execFileSync('./health-server', ['token', '--role', role], { cwd: '../backend', encoding: 'utf8' }).trim();
-const upload = credential('upload'), read = credential('read'), admin = credential('admin');
-const call = async (path, method = 'GET', token = admin, body) => {
- const r = await fetch(base + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
- return r;
-};
-await call('/v1/snapshot', 'DELETE', upload);
+const call = (path, method = 'GET', body) => fetch(base + path, {
+ method, headers: { 'Content-Type': 'application/json' },
+ body: body === undefined ? undefined : JSON.stringify(body),
+});
+assert.equal((await call('/v1/snapshot', 'DELETE')).status, 204);
+const plugin = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '5173', '--strictPort'], { cwd: '../evenhub', stdio: 'ignore' });
+const pluginURL = 'http://127.0.0.1:5173';
 await mkdir('../artifacts/admin', { recursive: true });
 const browser = await chromium.launch();
 try {
  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, locale: 'zh-CN', timezoneId: 'UTC' });
- const exceptions = []; page.on('pageerror', e => exceptions.push(e.message));
+ const exceptions = [], adminHeaders = []; page.on('pageerror', e => exceptions.push(e.message));
+ page.on('request', r => { if (r.url().includes('/api/admin/')) adminHeaders.push(r.headers()); });
  await page.goto(base + '/admin/');
- await page.getByText('登录数据后台', { exact: true }).waitFor();
- await page.screenshot({ path: '../artifacts/admin/login.png', fullPage: true });
- await page.getByLabel('管理令牌').fill(admin);
- await page.getByRole('button', { name: '进入管理后台' }).click();
+ assert.equal(await page.locator('input[type="password"]').count(), 0);
+ assert.equal(await page.getByRole('button', { name: '退出登录' }).count(), 0);
  await page.getByText('等待第一份健康摘要').waitFor();
  const template = JSON.parse(await readFile('../shared/snapshot.example.json', 'utf8'));
  const now = Date.now() - 60_000;
@@ -34,10 +33,10 @@ try {
   s.sleep.startedAt = new Date(t - 10 * 3600000).toISOString(); s.sleep.endedAt = new Date(t - 2 * 3600000).toISOString(); s.sleep.totalMinutes = 390 + i;
   s.activity.steps = 4000 + i * 100; s.heartRate.measuredAt = new Date(t - 300000).toISOString(); s.warnings = [];
   s.workout.startedAt = new Date(t - 30 * 3600000).toISOString(); s.workout.endedAt = new Date(t - 29.5 * 3600000).toISOString();
-  const response = await call('/v1/snapshot', 'PUT', upload, s); assert.equal(response.status, 200, await response.text());
+  const response = await call('/v1/snapshot', 'PUT', s); assert.equal(response.status, 200, await response.text());
  }
- assert.equal((await call('/v1/snapshot', 'GET', read)).status, 200);
- assert.equal((await call('/api/admin/me', 'GET', upload)).status, 401);
+ assert.equal((await call('/v1/snapshot', 'GET')).status, 200);
+ assert.equal((await (await call('/api/admin/me')).json()).authMode, 'none');
  const range = new URLSearchParams({ from: new Date(times[0]).toISOString().slice(0, 10), to: new Date(now).toISOString().slice(0, 10) });
  const daily = await (await call(`/api/admin/days?${range}`)).json();
  assert.equal(daily.items.at(-1).snapshot.activity.steps, 6700);
@@ -59,11 +58,54 @@ try {
  await page.screenshot({ path: '../artifacts/admin/mobile.png', fullPage: true });
  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'mobile horizontal overflow');
  assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0, 'credentials persisted');
- await page.getByRole('button', { name: '退出登录' }).click();
- await page.getByText('登录数据后台', { exact: true }).waitFor();
- assert.equal(await page.locator('body').innerText().then(v => v.includes('6,700')), false, 'data retained after logout');
+ await page.reload();
+ await page.getByText('6,700', { exact: true }).first().waitFor();
+ assert.equal(await page.locator('input[type="password"]').count(), 0);
+ // Exercise the actual Even web build against the same Gin/MySQL service.
+ let ready = false;
+ for (let i = 0; i < 40; i++) {
+  try { ready = (await fetch(pluginURL)).ok; } catch {}
+  if (ready) break;
+  await new Promise(resolve => setTimeout(resolve, 250));
+ }
+ assert.ok(ready, 'plugin preview did not start');
+ const glasses = await browser.newPage({ viewport: { width: 1440, height: 1060 } });
+ glasses.on('pageerror', e => exceptions.push(e.message));
+ const headers = [];
+ glasses.on('request', r => { if (r.url().startsWith(base)) headers.push(r.headers()); });
+ await glasses.goto(pluginURL);
+ await expect(glasses.locator('#mode-pill')).toHaveText('等待数据', { timeout: 10000 });
+ assert.equal(await glasses.locator('#read-token').count(), 0);
+ await glasses.locator('#demo-toggle').click();
+ await expect(glasses.locator('#mode-pill')).toHaveText('演示数据', { timeout: 10000 });
+ for (const name of ['activity','workout','heartRate','sleep']) await glasses.locator('#tab-' + name).click();
+ await glasses.locator('#demo-toggle').click();
+ await glasses.locator('#api-url').fill(base);
+ await glasses.locator('#refresh').click();
+ await expect(glasses.locator('#mode-pill')).toHaveText('真实数据', { timeout: 10000 });
+ await expect(glasses.locator('#metric-steps')).toHaveText('6,700', { timeout: 10000 });
+ await glasses.screenshot({ path: '../artifacts/admin/plugin-no-token.png', fullPage: true });
+ await glasses.route(base + '/v1/snapshot', route => route.abort());
+ await glasses.locator('#refresh').click();
+ await expect(glasses.locator('#mode-pill')).toHaveText('缓存摘要', { timeout: 10000 });
+ await glasses.unroute(base + '/v1/snapshot');
+ // Old locally stored credentials are dropped on upgrade; the address is retained.
+ await glasses.evaluate(origin => localStorage.setItem('g3-health.connection.v1', JSON.stringify({ origin, token: 'old-test-secret' })), base);
+ await glasses.reload();
+ await expect(glasses.locator('#mode-pill')).toHaveText('真实数据', { timeout: 10000 });
+ assert.deepEqual(await glasses.evaluate(() => JSON.parse(localStorage.getItem('g3-health.connection.v1'))), { origin: base });
+ assert.ok(headers.length > 0 && headers.every(h => !h.authorization), 'plugin sends credentials');
+ await glasses.setViewportSize({ width: 390, height: 844 });
+ assert.ok(await glasses.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+ await glasses.locator('#clear-config').click();
+ assert.equal(await glasses.locator('#api-url').inputValue(), '');
+ assert.equal(await glasses.evaluate(() => localStorage.getItem('g3-health.connection.v1')), null);
+ await glasses.close();
+ assert.ok(adminHeaders.length > 0 && adminHeaders.every(h => !h.authorization), 'admin sends credentials');
  assert.deepEqual(exceptions, []);
- assert.equal((await call('/v1/snapshot', 'DELETE', upload)).status, 204);
+ assert.equal((await call('/v1/snapshot', 'DELETE')).status, 204);
  assert.equal((await (await call('/api/admin/overview')).json()).snapshotCount, 0);
- console.log('PASS: Gin/MySQL upload/read/admin roles, history, daily de-duplication, Vue desktop/mobile, logout, delete.');
-} finally { await browser.close(); }
+ await page.getByRole('button', { name: '刷新数据' }).click();
+ await page.getByText('等待第一份健康摘要').waitFor();
+ console.log('PASS: no-token Gin/MySQL upload/read/delete, history, Vue auto-load/reload/mobile, Even no-token read/cache/legacy-config migration.');
+} finally { plugin.kill(); await browser.close(); }
