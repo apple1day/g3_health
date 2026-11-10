@@ -2,7 +2,7 @@ name: Validate Health Glance
 
 on:
   push:
-    branches: [main, feat/no-token-local-use]
+    branches: [main, feat/healthkit-history, feat/no-token-local-use]
   pull_request:
   workflow_dispatch:
 
@@ -83,5 +83,3 @@ jobs:
           name: ios-test-results
           path: artifacts/G3Health-tests.xcresult
           retention-days: 7
-
-  # Browser + real Gin/MySQL integration now lives in gin-mysql-admin.yml.
