@@ -1,0 +1,33 @@
+ // Backfill old HealthKit records independently of today's snapshot.
+ await page.setViewportSize({ width: 1440, height: 1050 });
+ const initialHistory = await (await call('/v1/history/status')).json();
+ const records = Array.from({ length: 120 }, (_, i) => ({
+  id: `00000000-0000-4000-8000-${String(i).padStart(12,'0')}`, kind: 'sleep',
+  startedAt: '2018-01-01T22:00:00Z', endedAt: '2018-01-01T23:00:00Z', day: '2018-01-01', timeZone: 'UTC',
+  sourceID: 'test.watch', sourceName: 'CI Apple Watch', device: 'Watch', isAppleWatch: true,
+  value: 60, unit: 'min', category: 3, label: '核心睡眠', metrics: {},
+ }));
+ const batch = { schemaVersion: 1, epoch: initialHistory.epoch, kind: 'sleep', records, deletedIDs: [] };
+ assert.equal((await call('/v1/history/batch', 'PUT', batch)).status, 200);
+ assert.equal((await call('/v1/history/batch', 'PUT', batch)).status, 200);
+ assert.equal((await (await call('/v1/history/status')).json()).count, 120);
+ assert.equal((await (await call('/v1/snapshot')).json()).snapshot.activity.steps, 6700, 'history replaced current snapshot');
+ await page.getByRole('button', { name: '全量健康记录' }).click();
+ await expect(page.getByTestId('record-count')).toHaveText('120');
+ await expect(page.getByText('已显示 50 条')).toBeVisible();
+ await page.getByRole('button', { name: '加载更早记录' }).click();
+ await expect(page.getByText('已显示 100 条')).toBeVisible();
+ await page.getByRole('button', { name: '加载更早记录' }).click();
+ await expect(page.getByText('已显示 120 条')).toBeVisible();
+ assert.equal(await page.getByRole('button', { name: '加载更早记录' }).count(), 0);
+ await page.screenshot({ path: '../artifacts/admin/raw-history.png', fullPage: true });
+ await page.getByRole('button', { name: '记录详情' }).first().click();
+ await page.getByRole('dialog').waitFor();
+ assert.ok((await page.getByRole('dialog').innerText()).includes('2018-01-01'));
+ await page.getByRole('button', { name: '关闭', exact: true }).click();
+ await page.getByLabel('历史记录类型').selectOption('heartRate');
+ await expect(page.getByText('尚无匹配的历史记录。请先在 iPhone 同步全部历史，并核对健康读取权限。')).toBeVisible();
+ await page.setViewportSize({ width: 390, height: 844 });
+ assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+ await page.screenshot({ path: '../artifacts/admin/raw-history-mobile.png', fullPage: true });
+ await page.getByRole('button', { name: '数据总览' }).click();

@@ -1,0 +1,27 @@
+name: Assemble history source update
+on:
+  push:
+    branches: [feat/healthkit-history]
+    paths: [.github/workflows/install-history.yml]
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Apply reviewed source transformations
+        run: |
+          python3 scripts/apply-history-update.py
+          find backend -name '*.go' -type f -print0 | xargs -0 gofmt -w
+          git rm scripts/apply-history-update.py web-admin/tests/history-fragment.txt .github/workflows/install-history.yml .github/workflows/history-source.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend ios web-admin README.md .github/workflows/ci.yml .github/workflows/gin-mysql-admin.yml
+          git commit -m 'feat: wire full HealthKit history and historical browsing'
+          git push origin HEAD:refs/heads/feat/healthkit-history
