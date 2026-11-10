@@ -1,0 +1,20 @@
+# Copy/generate as config.local.yaml (gitignored). NEVER commit real credentials.
+mysql:
+  prefix: ""
+  port: "3306"
+  config: charset=utf8mb4&parseTime=True&loc=Local
+  db-name: g3_health
+  username: root
+  password: ""  # setup-backend.sh asks privately; use a restricted account in production
+  path: 127.0.0.1
+server:
+  host: 0.0.0.0
+  port: 8787
+  admin-dist: ../web-admin/dist
+  allowed-origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+security:
+  upload-token: ""  # generated/reused from server/.env on first setup
+  read-token: ""
+  admin-token: ""   # separate read-only administration credential

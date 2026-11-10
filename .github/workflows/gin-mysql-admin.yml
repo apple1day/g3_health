@@ -1,0 +1,89 @@
+name: Gin MySQL Vue validation
+on:
+  push:
+    branches: [main, feat/gin-mysql-admin]
+    paths: ['backend/**', 'web-admin/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
+  pull_request:
+    paths: ['backend/**', 'web-admin/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-disposable-password
+          MYSQL_DATABASE: g3_health_ci
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-disposable-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve Go modules
+        working-directory: backend
+        run: go mod tidy
+      - name: Go unit, API and real MySQL tests
+        working-directory: backend
+        env:
+          MYSQL_INTEGRATION: '1'
+          MYSQL_TEST_PASSWORD: ci-only-disposable-password
+        run: go test -tags nomsgpack -race -v ./...
+      - name: Build Gin server
+        working-directory: backend
+        run: go build -tags nomsgpack -o health-server ./cmd/health-server
+      - name: Vue tests and build
+        working-directory: web-admin
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm test
+          npm run build
+      - name: Start isolated test server
+        working-directory: backend
+        env:
+          MYSQL_PASSWORD: ci-only-disposable-password
+          MYSQL_DATABASE: g3_health_ci
+        run: |
+          ./health-server init-config
+          ./health-server migrate
+          ./health-server serve > /tmp/g3-health-ci-server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8787/healthz; then exit 0; fi
+            sleep 1
+          done
+          echo 'Test server did not become ready.'
+          exit 1
+      - name: Install test browser
+        working-directory: web-admin
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end browser and API tests
+        working-directory: web-admin
+        env:
+          HEALTH_E2E: isolated-ci-database
+        run: npm run test:browser
+      - name: Check shell syntax and private-config ignore rule
+        run: |
+          for script in scripts/*.sh *.sh; do bash -n "$script"; done
+          git check-ignore backend/config.local.yaml
+          if git ls-files --error-unmatch backend/config.local.yaml 2>/dev/null; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gin-mysql-admin-validation
+          path: |
+            backend/go.mod
+            backend/go.sum
+            web-admin/package-lock.json
+            artifacts/admin/
+          retention-days: 7

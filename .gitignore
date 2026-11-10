@@ -4,6 +4,9 @@
 !.env.example
 **/Signing.local.xcconfig
 server/data/
+backend/config.local.yaml
+backend/health-server
+backend/health-server.exe
 *.sqlite3
 *.sqlite3-*
 *.db
@@ -12,7 +15,6 @@ server/data/
 *.p12
 *.p8
 *.pem
-
 # Generated dependencies / builds
 **/node_modules/
 **/dist/
