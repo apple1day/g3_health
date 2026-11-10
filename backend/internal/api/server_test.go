@@ -64,63 +64,76 @@ func (f *fake) Get(_ context.Context, id int64) (store.Record, error) {
 	}
 	return store.Record{}, store.ErrNotFound
 }
-func configForTest() config.Config {
-	c := config.Default()
-	c.Security = config.Security{UploadToken: strings.Repeat("u", 43), ReadToken: strings.Repeat("r", 43), AdminToken: strings.Repeat("a", 43)}
-	return c
-}
-func call(r http.Handler, method, path, token string, body []byte) *httptest.ResponseRecorder {
+
+// legacyAuth is used only to verify backwards-compatible header ignoring.
+func call(r http.Handler, method, path, legacyAuth string, body []byte) *httptest.ResponseRecorder {
 	q := httptest.NewRequest(method, path, bytes.NewReader(body))
 	q.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		q.Header.Set("Authorization", "Bearer "+token)
+	if legacyAuth != "" {
+		q.Header.Set("Authorization", "Bearer "+legacyAuth)
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, q)
 	return w
 }
-func TestRolesAndLifecycle(t *testing.T) {
-	cfg := configForTest()
-	f := &fake{}
-	r := New(cfg, f)
+func TestNoTokenLifecycle(t *testing.T) {
+	r := New(config.Default(), &fake{})
 	raw := testutil.Raw(time.Now().Add(-time.Minute))
 	cases := []struct {
-		method, path, token string
-		body                []byte
-		want                int
+		method, path string
+		body         []byte
+		want         int
 	}{
-		{"GET", "/healthz", "", nil, 200}, {"GET", "/v1/snapshot", cfg.Security.ReadToken, nil, 404},
-		{"PUT", "/v1/snapshot", cfg.Security.ReadToken, raw, 401}, {"PUT", "/v1/snapshot", cfg.Security.AdminToken, raw, 401},
-		{"GET", "/api/admin/me", cfg.Security.UploadToken, nil, 401}, {"GET", "/api/admin/me", cfg.Security.ReadToken, nil, 401}, {"GET", "/api/admin/me", cfg.Security.AdminToken, nil, 200},
-		{"PUT", "/v1/snapshot", cfg.Security.UploadToken, raw, 200}, {"PUT", "/v1/snapshot", cfg.Security.UploadToken, raw, 200},
-		{"GET", "/v1/snapshot", cfg.Security.ReadToken, nil, 200}, {"GET", "/v1/snapshot", cfg.Security.UploadToken, nil, 401},
-		{"GET", "/api/admin/overview", cfg.Security.AdminToken, nil, 200}, {"GET", "/api/admin/snapshots?page=0", cfg.Security.AdminToken, nil, 400},
-		{"GET", "/api/admin/days?from=2025-01-01&to=2026-12-01", cfg.Security.AdminToken, nil, 400},
-		{"GET", "/api/admin/days", cfg.Security.AdminToken, nil, 400},
-		{"GET", "/api/admin/snapshots/1", cfg.Security.AdminToken, nil, 200},
-		{"DELETE", "/v1/snapshot", cfg.Security.ReadToken, nil, 401}, {"DELETE", "/v1/snapshot", cfg.Security.UploadToken, nil, 204}, {"DELETE", "/v1/snapshot", cfg.Security.UploadToken, nil, 204},
-		{"GET", "/v1/snapshot", cfg.Security.ReadToken, nil, 404},
+		{"GET", "/healthz", nil, 200}, {"GET", "/v1/snapshot", nil, 404},
+		{"GET", "/api/admin/me", nil, 200}, {"GET", "/api/admin/overview", nil, 200},
+		{"PUT", "/v1/snapshot", raw, 200}, {"PUT", "/v1/snapshot", raw, 200},
+		{"GET", "/v1/snapshot", nil, 200}, {"GET", "/api/admin/snapshots/1", nil, 200},
+		{"GET", "/api/admin/snapshots?page=0", nil, 400},
+		{"GET", "/api/admin/days?from=2025-01-01&to=2026-12-01", nil, 400},
+		{"GET", "/api/admin/days", nil, 400},
+		{"DELETE", "/v1/snapshot", nil, 204}, {"DELETE", "/v1/snapshot", nil, 204},
+		{"GET", "/v1/snapshot", nil, 404},
 	}
-	for _, c := range cases {
-		w := call(r, c.method, c.path, c.token, c.body)
-		if w.Code != c.want {
-			t.Fatalf("%s %s: got %d want %d: %s", c.method, c.path, w.Code, c.want, w.Body.String())
+	for _, tc := range cases {
+		w := call(r, tc.method, tc.path, "", tc.body)
+		if w.Code != tc.want {
+			t.Fatalf("%s %s: got %d want %d: %s", tc.method, tc.path, w.Code, tc.want, w.Body.String())
 		}
 		if w.Header().Get("Cache-Control") != "no-store" {
-			t.Fatal("missing private response policy")
+			t.Fatal("private response policy lost")
+		}
+		if w.Header().Get("WWW-Authenticate") != "" {
+			t.Fatal("unexpected authentication challenge")
 		}
 	}
 }
-func TestAuthenticationBeforeBodyAndLimits(t *testing.T) {
-	cfg := configForTest()
+func TestLegacyCredentialsDoNotGateAnyEndpoint(t *testing.T) {
+	cfg := config.Default()
+	cfg.Security = config.Security{UploadToken: "old", ReadToken: "old", AdminToken: "old"}
 	r := New(cfg, &fake{})
-	if w := call(r, "PUT", "/v1/snapshot", "", []byte("invalid")); w.Code != 401 {
+	raw := testutil.Raw(time.Now().Add(-time.Minute))
+	if w := call(r, "PUT", "/v1/snapshot", "unused-legacy-value", raw); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	for _, path := range []string{"/v1/snapshot", "/api/admin/me", "/api/admin/overview", "/api/admin/snapshots"} {
+		for _, header := range []string{"", "invalid-legacy-value"} {
+			if w := call(r, "GET", path, header, nil); w.Code != 200 {
+				t.Fatalf("%s: %d", path, w.Code)
+			}
+		}
+	}
+	if w := call(r, "DELETE", "/v1/snapshot", "unused", nil); w.Code != 204 {
+		t.Fatal(w.Code)
+	}
+}
+func TestBodyValidationAndLimitsWithoutAuth(t *testing.T) {
+	r := New(config.Default(), &fake{})
+	if w := call(r, "PUT", "/v1/snapshot", "", []byte("invalid")); w.Code != 422 {
 		t.Fatal(w.Code)
 	}
 	for _, length := range []int64{1, -1, MaxBody + 1} {
 		q := httptest.NewRequest("PUT", "/v1/snapshot", strings.NewReader(strings.Repeat("x", MaxBody+1)))
 		q.ContentLength = length
-		q.Header.Set("Authorization", "Bearer "+cfg.Security.UploadToken)
 		q.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, q)
@@ -128,52 +141,63 @@ func TestAuthenticationBeforeBodyAndLimits(t *testing.T) {
 			t.Fatalf("limit bypass: %d", w.Code)
 		}
 	}
-	q := httptest.NewRequest("GET", "/v1/snapshot", nil)
-	q.Header.Add("Authorization", "Bearer "+cfg.Security.ReadToken)
-	q.Header.Add("Authorization", "Bearer "+cfg.Security.ReadToken)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, q)
-	if w.Code != 401 {
-		t.Fatal("duplicate auth accepted")
-	}
-}
-func TestDemoAndSecretsRejected(t *testing.T) {
-	cfg := configForTest()
-	r := New(cfg, &fake{})
-	raw := string(testutil.Raw(time.Now().Add(-time.Minute)))
-	for _, b := range []string{strings.Replace(raw, `"healthkit"`, `"demo"`, 1), strings.Replace(raw, `"warnings":[]`, `"warnings":["`+cfg.Security.UploadToken+`"]`, 1)} {
-		w := call(r, "PUT", "/v1/snapshot", cfg.Security.UploadToken, []byte(b))
-		if w.Code != 422 || strings.Contains(w.Body.String(), cfg.Security.UploadToken) {
-			t.Fatal("invalid or sensitive content accepted/echoed")
+	raw := testutil.Raw(time.Now().Add(-time.Minute))
+	for _, h := range []map[string]string{{"Content-Type": "text/plain"}, {"Content-Type": "application/json", "Content-Encoding": "gzip"}} {
+		q := httptest.NewRequest("PUT", "/v1/snapshot", bytes.NewReader(raw))
+		for key, value := range h {
+			q.Header.Set(key, value)
 		}
-	}
-}
-func TestCORSAndAdminIsolation(t *testing.T) {
-	cfg := configForTest()
-	r := New(cfg, &fake{})
-	for _, allowed := range []bool{true, false} {
-		q := httptest.NewRequest("OPTIONS", "/v1/snapshot", nil)
-		origin := "http://localhost:5173"
-		want := 204
-		if !allowed {
-			origin = "https://untrusted.example"
-			want = 403
-		}
-		q.Header.Set("Origin", origin)
-		q.Header.Set("Access-Control-Request-Method", "PUT")
-		q.Header.Set("Access-Control-Request-Headers", "authorization,content-type")
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, q)
-		if w.Code != want {
-			t.Fatal(w.Code)
+		if w.Code != 415 {
+			t.Fatal("invalid media type accepted", w.Code)
 		}
 	}
-	q := httptest.NewRequest("GET", "/api/admin/me", nil)
-	q.Header.Set("Authorization", "Bearer "+cfg.Security.AdminToken)
-	q.Header.Set("Origin", "http://localhost:5173")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, q)
-	if w.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Fatal("admin exposed cross-origin")
+}
+func TestDemoUnknownFieldsAndStaleSnapshotsRejected(t *testing.T) {
+	r := New(config.Default(), &fake{})
+	now := time.Now().Add(-time.Minute)
+	raw := string(testutil.Raw(now))
+	for _, bad := range []string{strings.Replace(raw, `"healthkit"`, `"demo"`, 1), strings.Replace(raw, `"schemaVersion":1`, `"token":"do-not-store","schemaVersion":1`, 1)} {
+		w := call(r, "PUT", "/v1/snapshot", "", []byte(bad))
+		if w.Code != 422 || strings.Contains(w.Body.String(), "do-not-store") {
+			t.Fatal("invalid content accepted or echoed")
+		}
+	}
+	if call(r, "PUT", "/v1/snapshot", "", []byte(raw)).Code != 200 {
+		t.Fatal("initial upload failed")
+	}
+	if call(r, "PUT", "/v1/snapshot", "", testutil.Raw(now.Add(-time.Second))).Code != 409 {
+		t.Fatal("stale data accepted")
+	}
+}
+func TestBrowserOriginsStillChecked(t *testing.T) {
+	r := New(config.Default(), &fake{})
+	for _, tc := range []struct {
+		method, path, origin string
+		want                 int
+	}{
+		{"OPTIONS", "/v1/snapshot", "http://localhost:5173", 204},
+		{"OPTIONS", "/v1/snapshot", "https://untrusted.example", 403},
+		{"GET", "/v1/snapshot", "https://untrusted.example", 403},
+		{"PUT", "/v1/snapshot", "https://untrusted.example", 403},
+		{"DELETE", "/v1/snapshot", "https://untrusted.example", 403},
+		{"GET", "/api/admin/overview", "https://untrusted.example", 403},
+		{"GET", "/api/admin/overview", "http://example.com", 200},
+	} {
+		q := httptest.NewRequest(tc.method, tc.path, nil)
+		q.Header.Set("Origin", tc.origin)
+		if tc.method == "OPTIONS" {
+			q.Header.Set("Access-Control-Request-Method", "PUT")
+			q.Header.Set("Access-Control-Request-Headers", "content-type")
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, q)
+		if w.Code != tc.want {
+			t.Fatalf("%s %s origin=%s: got %d want %d", tc.method, tc.path, tc.origin, w.Code, tc.want)
+		}
+		if strings.HasPrefix(tc.path, "/api/admin/") && w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Fatal("admin CORS enabled")
+		}
 	}
 }

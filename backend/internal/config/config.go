@@ -2,8 +2,6 @@ package config
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/go-sql-driver/mysql"
@@ -22,7 +20,7 @@ import (
 type Config struct {
 	MySQL    MySQL    `yaml:"mysql"`
 	Server   Server   `yaml:"server"`
-	Security Security `yaml:"security"`
+	Security Security `yaml:"security,omitempty"` // Deprecated: accept old YAML, never authenticate.
 }
 type MySQL struct {
 	Prefix   string `yaml:"prefix"`
@@ -40,13 +38,12 @@ type Server struct {
 	AllowedOrigins []string `yaml:"allowed-origins"`
 }
 type Security struct {
-	UploadToken string `yaml:"upload-token"`
-	ReadToken   string `yaml:"read-token"`
-	AdminToken  string `yaml:"admin-token"`
+	UploadToken string `yaml:"upload-token,omitempty"`
+	ReadToken   string `yaml:"read-token,omitempty"`
+	AdminToken  string `yaml:"admin-token,omitempty"`
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~+/-]{32,512}={0,2}$`)
 
 func Default() Config {
 	return Config{
@@ -70,6 +67,7 @@ func Load(path string) (Config, error) {
 	if dec.Decode(&extra) != io.EOF {
 		return c, errors.New("配置只能包含一个 YAML 文档")
 	}
+	c.Security = Security{} // Ignore deprecated keys without changing the on-disk file.
 	overrides(&c)
 	if err = c.Validate(); err != nil {
 		return c, err
@@ -80,7 +78,7 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 func overrides(c *Config) {
-	for key, p := range map[string]*string{"MYSQL_PASSWORD": &c.MySQL.Password, "MYSQL_HOST": &c.MySQL.Path, "MYSQL_PORT": &c.MySQL.Port, "MYSQL_USER": &c.MySQL.Username, "MYSQL_DATABASE": &c.MySQL.DBName, "UPLOAD_TOKEN": &c.Security.UploadToken, "READ_TOKEN": &c.Security.ReadToken, "ADMIN_TOKEN": &c.Security.AdminToken} {
+	for key, p := range map[string]*string{"MYSQL_PASSWORD": &c.MySQL.Password, "MYSQL_HOST": &c.MySQL.Path, "MYSQL_PORT": &c.MySQL.Port, "MYSQL_USER": &c.MySQL.Username, "MYSQL_DATABASE": &c.MySQL.DBName} {
 		if v, ok := os.LookupEnv(key); ok {
 			*p = v
 		}
@@ -107,17 +105,6 @@ func (c Config) Validate() error {
 	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return errors.New("服务端口不正确")
-	}
-	tokens := []string{c.Security.UploadToken, c.Security.ReadToken, c.Security.AdminToken}
-	for i, t := range tokens {
-		if !tokenPattern.MatchString(t) {
-			return errors.New("三个令牌都需为 32–512 位有效随机字符，请重新检查本机配置")
-		}
-		for j := 0; j < i; j++ {
-			if t == tokens[j] {
-				return errors.New("上传、读取、管理令牌必须各不相同")
-			}
-		}
 	}
 	for _, origin := range c.Server.AllowedOrigins {
 		if origin == "*" || origin == "null" {
@@ -185,14 +172,9 @@ func (c Config) DriverConfig(withoutDatabase bool) (*mysql.Config, error) {
 	}
 	return m, nil
 }
-func randomToken() (string, error) {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b), err
-}
 
-// Init creates private configuration once, reusing old iPhone / Even tokens.
-// The legacy file is parsed as data, NEVER executed as shell code.
+// Init creates database configuration once. Old CORS settings can be migrated;
+// legacy tokens are neither generated nor required. Existing YAML is never replaced.
 func Init(path, legacy string) error {
 	if _, e := os.Stat(path); e == nil {
 		return errors.New("本机配置已存在，未覆盖；需要修改时请编辑 backend/config.local.yaml")
@@ -201,16 +183,6 @@ func Init(path, legacy string) error {
 	old, err := readLegacy(legacy)
 	if err != nil {
 		return err
-	}
-	c.Security.UploadToken = old["UPLOAD_TOKEN"]
-	c.Security.ReadToken = old["READ_TOKEN"]
-	for _, p := range []*string{&c.Security.UploadToken, &c.Security.ReadToken, &c.Security.AdminToken} {
-		if *p == "" {
-			*p, err = randomToken()
-			if err != nil {
-				return errors.New("无法生成随机令牌")
-			}
-		}
 	}
 	if origin := old["ALLOWED_ORIGINS"]; origin != "" {
 		c.Server.AllowedOrigins = nil
@@ -234,7 +206,7 @@ func Init(path, legacy string) error {
 		return errors.New("无法新建配置；已有文件不会被覆盖")
 	}
 	defer f.Close()
-	if _, err = f.Write(append([]byte("# 本机私有配置：包含数据库密码和令牌，禁止提交或截图分享。\n"), raw...)); err != nil {
+	if _, err = f.Write(append([]byte("# 本机私有配置：包含数据库密码，禁止提交或截图分享。\n"), raw...)); err != nil {
 		return errors.New("写入本机配置失败")
 	}
 	return f.Sync()
@@ -268,7 +240,7 @@ func readLegacy(path string) (map[string]string, error) {
 			v = v[1 : len(v)-1]
 		}
 		switch k {
-		case "UPLOAD_TOKEN", "READ_TOKEN", "ALLOWED_ORIGINS":
+		case "ALLOWED_ORIGINS":
 			if _, exists := result[k]; exists {
 				return nil, errors.New("旧 .env 存在重复配置，未迁移")
 			}

@@ -7,7 +7,6 @@ final class AppModel: ObservableObject {
     static let shared = AppModel()
     private let health = HealthKitService()
     private let relay = RelayClient()
-    private let tokenStore = TokenStore()
     private let cache = SnapshotCache()
     private let defaults = UserDefaults.standard
 
@@ -20,7 +19,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var hasRequestedReadAccess = false
     @Published private(set) var backgroundEnabled = false
     @Published private(set) var serverURL = ""
-    @Published private(set) var hasToken = false
     @Published var autoUpload = false {
         didSet { defaults.set(autoUpload, forKey: "relay.autoUpload") }
     }
@@ -34,7 +32,7 @@ final class AppModel: ObservableObject {
 
     var displayedSnapshot: HealthSnapshot? { isDemo ? demoSnapshot : realSnapshot }
     var healthAvailable: Bool { health.isAvailable }
-    var serverConfigured: Bool { !serverURL.isEmpty && hasToken }
+    var serverConfigured: Bool { !serverURL.isEmpty }
     var mayUpload: Bool { !isDemo && !isCached && realSnapshot != nil && serverConfigured && !isRefreshing && !isUploading }
 
     private init() {
@@ -42,7 +40,7 @@ final class AppModel: ObservableObject {
         backgroundEnabled = defaults.bool(forKey: "health.backgroundEnabled")
         autoUpload = defaults.bool(forKey: "relay.autoUpload")
         serverURL = defaults.string(forKey: "relay.baseURL") ?? ""
-        hasToken = tokenStore.read() != nil
+        LegacyRelayCredential.remove()
         realSnapshot = cache.read()
         isCached = realSnapshot != nil
         lastUploadAt = defaults.object(forKey: "relay.lastUploadAt") as? Date
@@ -115,26 +113,23 @@ final class AppModel: ObservableObject {
         notice = realSnapshot == nil ? "已退出演示，请连接 Apple 健康读取你的数据。" : "已回到本机健康摘要，可下拉刷新。"
     }
 
-    func savedToken() -> String { tokenStore.read() ?? "" }
-
-    func saveConnection(base: String, token: String) {
+    func saveConnection(base: String) {
         do {
             _ = try RelayClient.endpoint(base: base)
-            let clean = try RelayClient.validateToken(token)
-            try tokenStore.save(clean)
             serverURL = base.trimmingCharacters(in: .whitespacesAndNewlines)
             defaults.set(serverURL, forKey: "relay.baseURL")
-            hasToken = true
-            notice = "同步配置已保存；点击“同步到眼镜服务”发送摘要。"
+            LegacyRelayCredential.remove()
+            notice = "服务地址已保存；免 Token 模式，点击“同步到眼镜服务”发送摘要。"
             errorMessage = nil
+            lastFailureCode = nil
         } catch let error as RelayFailure { errorMessage = error.message; lastFailureCode = error.code }
-        catch { errorMessage = "令牌无法保存到钥匙串，请解锁手机后重试。"; lastFailureCode = "keychain" }
+        catch { errorMessage = "服务地址无效，请检查后重试。"; lastFailureCode = "invalidURL" }
     }
 
     func disconnect() {
         autoUpload = false
-        tokenStore.delete()
-        serverURL = ""; hasToken = false
+        LegacyRelayCredential.remove()
+        serverURL = ""
         defaults.removeObject(forKey: "relay.baseURL")
         notice = "已移除本机同步配置。服务端旧摘要如需删除，请先使用原配置执行删除。"
     }
@@ -147,11 +142,12 @@ final class AppModel: ObservableObject {
     }
 
     private func upload(snapshot: HealthSnapshot) async {
-        guard !isUploading, !isDemo, let token = tokenStore.read() else { return }
+        guard !isUploading, !isDemo else { return }
+        guard serverConfigured else { errorMessage = "请先在设置中保存同步服务地址。"; return }
         isUploading = true
         defer { isUploading = false }
         do {
-            try await relay.upload(snapshot, base: serverURL, token: token)
+            try await relay.upload(snapshot, base: serverURL)
             lastUploadAt = Date()
             defaults.set(lastUploadAt, forKey: "relay.lastUploadAt")
             notice = "摘要已同步。可在眼镜插件中刷新查看。"
@@ -161,13 +157,13 @@ final class AppModel: ObservableObject {
     }
 
     func deleteRemote() async {
-        guard !isUploading, let token = tokenStore.read() else { return }
+        guard !isUploading, serverConfigured else { return }
         autoUpload = false
         isUploading = true
         defer { isUploading = false }
         do {
-            try await relay.delete(base: serverURL, token: token)
-            notice = "服务端摘要已删除，自动上传已关闭。Apple 健康原始数据保持不变。"
+            try await relay.delete(base: serverURL)
+            notice = "服务端全部摘要历史已删除，自动上传已关闭。Apple 健康原始数据保持不变。"
             errorMessage = nil
             lastUploadAt = nil
             defaults.removeObject(forKey: "relay.lastUploadAt")
@@ -222,6 +218,7 @@ final class AppModel: ObservableObject {
             "displayMode": isDemo ? "demo" : "healthkit",
             "displayingCache": isCached,
             "relayConfigured": serverConfigured,
+            "relayAuthMode": "none",
             "autoUploadEnabled": autoUpload,
             "backgroundDeliveryEnabled": backgroundEnabled,
             "lastFailureCode": lastFailureCode ?? "none"

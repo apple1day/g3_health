@@ -15,21 +15,29 @@ heartRate.measuredAt is the sensor sample time; always render it alongside the l
 workout is the most recent completed workout within the last 30 days; fields may be absent for unknown distance/energy.
 `warnings` contains user-facing, non-sensitive problem descriptions; never tokens or raw HTTP response bodies.
 
-## Single-user relay
+## Local single-user relay (app/server 0.3)
 
-- `GET /healthz`: unauthenticated, reports status and API version only.
-- `PUT /v1/snapshot`: Authorization Bearer UPLOAD_TOKEN; JSON body is one full snapshot. Only accepts dataMode=healthkit. Size limit 128 KiB. Token cannot read.
-- `GET /v1/snapshot`: Authorization Bearer READ_TOKEN; returns `{ "snapshot": <snapshot>, "receivedAt": <server ISO8601 timestamp> }`. 404 if none. Token cannot upload/delete.
-- `DELETE /v1/snapshot`: Authorization Bearer UPLOAD_TOKEN; removes the stored snapshot; idempotent 204.
-- CORS allowlist configurable; include plugin origin or `*` explicitly for dev. Bearer tokens required regardless of CORS. No cookies.
-- Non-secret error shape: `{ "detail": "human-readable message" }`.
-- Production requires HTTPS via reverse proxy. HTTP is strictly local LAN development.
-- Private single-user instance: tokens generated locally, never in source, examples, static bundles, logs, or URLs.
-- Reject stale uploads (generatedAt earlier than stored); return 409. Reject malformed, oversized and demo snapshots.
+**No identity authentication. Trusted LAN only. Every client that can reach the server can read, upload and delete all history. Do not expose it publicly. HTTPS and CORS are not authentication.**
+
+- `GET /healthz`: status and API version only.
+- `PUT /v1/snapshot`: no token; full JSON snapshot, dataMode=healthkit only, limit 128 KiB.
+- `GET /v1/snapshot`: no token; returns `{ "snapshot": <snapshot>, "receivedAt": <server timestamp> }`; 404 if none.
+- `DELETE /v1/snapshot`: no token; deletes ALL MySQL snapshot history and latest pointer; idempotent 204.
+- `/api/admin/*`: no token. `/api/admin/me` reports `authMode: none`, not an authenticated identity.
+- Legacy Authorization headers are ignored. Old security YAML keys are accepted but not enforced; new configs generate no tokens.
+- Browser origins are checked on requests; /v1 CORS allowlist remains configurable, admin is same-origin. Native clients without Origin are accepted. No cookies.
+- Errors use `{ "detail": "human-readable message" }` without echoed health content.
+- Older snapshots or conflicting equal timestamps return 409; identical retries do not duplicate records.
+- Responses remain no-store; payload checks, null semantics and schema version are unchanged.
 
 ## UX
 
-Native App reads locally even when relay is not configured. Upload is opt-in and never uploads demo.
-Plugin defaults to unconnected state and offers explicit demo mode; demo never implies bridge connection or real data.
-Plugin configuration uses base URL + read token. Native uses base URL + upload token. No API URLs/tokens in query strings.
-On error keep prior snapshot visibly marked as cached with timestamps. On leaving demo, clear demo and restore real/empty state.
+Native App reads locally without relay configuration. Upload remains opt-in and demo never uploads.
+Phone and plugin require only the service base URL. URLs may not contain credentials or query strings.
+Vue opens the dashboard directly and reloads without login. Local-use warnings are visible.
+Old phone keychain relay credentials are removed within the app's own service/account scope; saved URL/cache are retained.
+The plugin migrates old saved config to `{origin}` only and discards the old secret.
+On failure keep prior data visibly marked cached with timestamps; never replace errors with demo data.
+Deleting remote history requires confirmation in iPhone UI; the API itself is deliberately unauthenticated.
+
+The historical Python implementation under server/ retains its old scoped-token contract; it is not the current default and cannot be used with 0.3 clients without authentication changes.

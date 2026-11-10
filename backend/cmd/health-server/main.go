@@ -32,9 +32,8 @@ func run() error {
 	}
 	flags := flag.NewFlagSet("health-server", flag.ContinueOnError)
 	path := flags.String("config", "config.local.yaml", "private YAML configuration")
-	legacy := flags.String("legacy-env", "../server/.env", "legacy token file; read only during init-config")
+	legacy := flags.String("legacy-env", "../server/.env", "legacy CORS settings; read only during init-config")
 	create := flags.Bool("create-database", false, "create database IF NOT EXISTS during migrate")
-	role := flags.String("role", "upload", "token role: upload/read/admin")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -45,7 +44,7 @@ func run() error {
 		if err := config.Init(*path, *legacy); err != nil {
 			return err
 		}
-		fmt.Println("本机配置已生成；保留旧上传/读取令牌；未输出密码或令牌。")
+		fmt.Println("本机数据库配置已生成；免 Token 模式，仅用于可信局域网。")
 		return nil
 	}
 	c, err := config.Load(*path)
@@ -53,21 +52,6 @@ func run() error {
 		return err
 	}
 	switch action {
-	case "token":
-		token := ""
-		switch *role {
-		case "upload":
-			token = c.Security.UploadToken
-		case "read":
-			token = c.Security.ReadToken
-		case "admin":
-			token = c.Security.AdminToken
-		default:
-			return errors.New("role 只能是 upload/read/admin")
-		}
-		// Explicit local-only command. Normal startup/API never prints/exposes tokens.
-		fmt.Print(token)
-		return nil
 	case "migrate":
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -78,7 +62,7 @@ func run() error {
 		return nil
 	case "serve":
 	default:
-		return errors.New("action 必须为 init-config / migrate / token / serve")
+		return errors.New("action 必须为 init-config / migrate / serve；当前版本无需 Token")
 	}
 	repo, err := store.New(c)
 	if err != nil {
@@ -93,8 +77,8 @@ func run() error {
 	defer stop()
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()
-	log.Printf("Health Glance Gin 服务端口 %d；管理页 /admin/；令牌和健康内容不写日志。", c.Server.Port)
-	log.Print("HTTP 仅用于可信局域网测试；公网必须使用 HTTPS，并改用受限数据库账号。")
+	log.Printf("Health Glance Gin 服务端口 %d；管理页 /admin/；免 Token 模式；健康内容不写日志。", c.Server.Port)
+	log.Print("警告：无身份认证，能连接服务的人均可读取、上传、删除全部健康历史。仅限可信局域网，禁止公网映射；HTTPS 不能替代登录认证。")
 	select {
 	case err = <-done:
 		if errors.Is(err, http.ErrServerClosed) {

@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"github.com/apple1day/g3_health/backend/internal/config"
 	"github.com/apple1day/g3_health/backend/internal/snapshot"
@@ -12,20 +10,19 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 const MaxBody = 128 * 1024
 
 type Server struct {
-	cfg          config.Config
-	repo         store.Repository
-	authFailures *limiter
+	cfg  config.Config
+	repo store.Repository
 }
 
 func New(c config.Config, repo store.Repository) *gin.Engine {
@@ -51,7 +48,7 @@ func New(c config.Config, repo store.Repository) *gin.Engine {
 		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		c.Next()
 	})
-	s := &Server{c, repo, &limiter{entries: map[string]failure{}}}
+	s := &Server{cfg: c, repo: repo}
 	r.Use(s.cors)
 	r.GET("/healthz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
@@ -62,17 +59,19 @@ func New(c config.Config, repo store.Repository) *gin.Engine {
 		}
 		c.JSON(200, gin.H{"status": "ok", "apiVersion": 1})
 	})
-	r.PUT("/v1/snapshot", s.auth(c.Security.UploadToken), s.put)
-	r.GET("/v1/snapshot", s.auth(c.Security.ReadToken), s.latest)
-	r.DELETE("/v1/snapshot", s.auth(c.Security.UploadToken), func(c *gin.Context) {
+	r.PUT("/v1/snapshot", s.put)
+	r.GET("/v1/snapshot", s.latest)
+	r.DELETE("/v1/snapshot", func(c *gin.Context) {
 		if e := repo.DeleteAll(c.Request.Context()); e != nil {
 			fail(c, 503, "Storage is temporarily unavailable.")
 			return
 		}
 		c.Status(204)
 	})
-	admin := r.Group("/api/admin", s.auth(c.Security.AdminToken))
-	admin.GET("/me", func(c *gin.Context) { c.JSON(200, gin.H{"role": "admin", "scope": "single-user-read-only"}) })
+	admin := r.Group("/api/admin")
+	admin.GET("/me", func(c *gin.Context) {
+		c.JSON(200, gin.H{"authMode": "none", "scope": "local-single-user", "warning": "No authentication. Trusted LAN only."})
+	})
 	admin.GET("/overview", func(c *gin.Context) {
 		v, e := repo.Overview(c.Request.Context())
 		if e != nil {
@@ -142,47 +141,43 @@ func New(c config.Config, repo store.Repository) *gin.Engine {
 func fail(c *gin.Context, status int, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"detail": message})
 }
-func (s *Server) auth(expected string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		headers := c.Request.Header.Values("Authorization")
-		supplied := ""
-		if len(headers) == 1 {
-			parts := strings.Split(headers[0], " ")
-			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-				supplied = parts[1]
-			}
-		}
-		want, got := sha256.Sum256([]byte(expected)), sha256.Sum256([]byte(supplied))
-		if supplied != "" && len(supplied) <= 514 && subtle.ConstantTimeCompare(want[:], got[:]) == 1 {
-			c.Next()
-			return
-		}
-		// Failed attempts only, per actual peer IP; never trust user-supplied XFF.
-		if !s.authFailures.allow(c.ClientIP(), time.Now()) {
-			c.Header("Retry-After", "60")
-			fail(c, 429, "Too many invalid authentication attempts.")
-			return
-		}
-		c.Header("WWW-Authenticate", "Bearer")
-		fail(c, 401, "A valid scoped bearer token is required.")
-	}
-}
 func (s *Server) cors(c *gin.Context) {
-	// Admin is SAME-ORIGIN only; Even/iPhone compatibility is limited to /v1.
+	// Browser-origin restrictions are NOT identity authentication. Native clients
+	// with no Origin can access every route; keep this service on a trusted LAN.
+	origin := c.GetHeader("Origin")
+	sameOrigin := false
+	if u, err := url.Parse(origin); err == nil && origin != "" {
+		scheme := "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+		sameOrigin = u.Scheme == scheme && u.Host == c.Request.Host && u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == ""
+	}
 	if !strings.HasPrefix(c.Request.URL.Path, "/v1/") {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/admin/") &&
+			((origin != "" && !sameOrigin) || c.GetHeader("Sec-Fetch-Site") == "cross-site") {
+			fail(c, 403, "Admin browser requests must be same-origin.")
+			return
+		}
 		c.Next()
 		return
 	}
-	origin := c.GetHeader("Origin")
 	allowed := ""
+	if sameOrigin {
+		allowed = origin
+	}
 	for _, o := range s.cfg.Server.AllowedOrigins {
-		if o == "*" {
+		if o == "*" && origin != "" {
 			allowed = "*"
 			break
 		}
 		if o == origin {
 			allowed = origin
 		}
+	}
+	if origin != "" && allowed == "" {
+		fail(c, 403, "Origin not allowed.")
+		return
 	}
 	if origin != "" && allowed != "" {
 		c.Header("Access-Control-Allow-Origin", allowed)
@@ -236,8 +231,8 @@ func (s *Server) put(c *gin.Context) {
 		}
 		return
 	}
-	cfg := s.cfg.Security
-	v, e := snapshot.Parse(raw, time.Now(), cfg.UploadToken, cfg.ReadToken, cfg.AdminToken)
+	// The service is deliberately unauthenticated; retain strict payload validation.
+	v, e := snapshot.Parse(raw, time.Now())
 	if e != nil {
 		fail(c, 422, "Invalid snapshot. Check schema v1, timestamps, units, field types, and dataMode=healthkit.")
 		return
@@ -301,35 +296,4 @@ func parseFilter(c *gin.Context, daily bool) (store.Filter, error) {
 		}
 	}
 	return f, nil
-}
-
-type failure struct {
-	start time.Time
-	count int
-}
-type limiter struct {
-	mu      sync.Mutex
-	entries map[string]failure
-}
-
-func (l *limiter) allow(ip string, now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if len(l.entries) > 2048 {
-		for k, v := range l.entries {
-			if now.Sub(v.start) > time.Minute {
-				delete(l.entries, k)
-			}
-		}
-		if len(l.entries) > 2048 {
-			return false
-		}
-	}
-	f := l.entries[ip]
-	if now.Sub(f.start) > time.Minute {
-		f = failure{start: now}
-	}
-	f.count++
-	l.entries[ip] = f
-	return f.count <= 30
 }

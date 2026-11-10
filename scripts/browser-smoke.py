@@ -1,3 +1,5 @@
+# Legacy 0.1 Python/token browser harness; not used by 0.3 CI.
+# Current no-token integration: web-admin/tests/browser.mjs + Gin/MySQL workflow.
 #!/usr/bin/env python3
 """Run the compiled web client against a disposable real relay using synthetic data.
 

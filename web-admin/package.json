@@ -1,9 +1,11 @@
 {
   "name": "g3-health-admin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174 --strictPort",
     "build": "vite build",
@@ -12,7 +14,9 @@
     "test:browser": "node tests/browser.mjs",
     "audit": "npm audit --audit-level=high"
   },
-  "dependencies": { "vue": "3.5.45" },
+  "dependencies": {
+    "vue": "3.5.45"
+  },
   "devDependencies": {
     "@vitejs/plugin-vue": "5.2.4",
     "vite": "6.4.6",

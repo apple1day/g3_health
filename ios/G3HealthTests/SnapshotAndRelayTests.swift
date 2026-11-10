@@ -37,7 +37,7 @@ final class SnapshotAndRelayTests: XCTestCase {
     }
 
     func testDemoCannotCreateAnUploadRequest() {
-        XCTAssertThrowsError(try RelayClient.uploadRequest(snapshot: .demo(), base: "https://example.com", token: String(repeating: "a", count: 43))) { error in
+        XCTAssertThrowsError(try RelayClient.uploadRequest(snapshot: .demo(), base: "https://example.com")) { error in
             XCTAssertEqual((error as? RelayFailure)?.code, "demoBlocked")
         }
     }
@@ -45,19 +45,28 @@ final class SnapshotAndRelayTests: XCTestCase {
     func testIncompleteHealthReadCannotUpload() {
         var snapshot = HealthSnapshot.empty()
         snapshot.sleep.status = .error
-        XCTAssertThrowsError(try RelayClient.uploadRequest(snapshot: snapshot, base: "https://example.com", token: String(repeating: "a", count: 43))) { error in
+        XCTAssertThrowsError(try RelayClient.uploadRequest(snapshot: snapshot, base: "https://example.com")) { error in
             XCTAssertEqual((error as? RelayFailure)?.code, "queryIncomplete")
         }
     }
 
-    func testRequestUsesAuthorizationHeaderNotQueryString() throws {
-        let token = String(repeating: "a", count: 43)
-        let request = try RelayClient.uploadRequest(snapshot: .empty(), base: "https://example.com/", token: token)
+    func testUploadNeedsOnlyAddressAndNeverSendsCredentials() throws {
+        let request = try RelayClient.uploadRequest(snapshot: .empty(), base: "https://example.com/")
         XCTAssertEqual(request.url?.absoluteString, "https://example.com/v1/snapshot")
         XCTAssertNil(request.url?.query)
         XCTAssertEqual(request.httpMethod, "PUT")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer " + token)
-        XCTAssertFalse(String(data: try XCTUnwrap(request.httpBody), encoding: .utf8)?.contains(token) ?? true)
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertNotNil(request.httpBody)
+    }
+
+    func testDeleteNeedsOnlyAddressAndNeverSendsCredentials() throws {
+        let request = try RelayClient.deleteRequest(base: "http://192.168.19.152:8787/", allowLocalHTTP: true)
+        XCTAssertEqual(request.url?.absoluteString, "http://192.168.19.152:8787/v1/snapshot")
+        XCTAssertEqual(request.httpMethod, "DELETE")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(request.httpBody)
     }
 
     func testHTTPAllowedOnlyForLocalDebugEndpoints() throws {
@@ -76,11 +85,4 @@ final class SnapshotAndRelayTests: XCTestCase {
         }
     }
 
-    func testTokenBoundsAndHeaderInjectionRejected() {
-        XCTAssertNoThrow(try RelayClient.validateToken(String(repeating: "a", count: 32)))
-        XCTAssertNoThrow(try RelayClient.validateToken(String(repeating: "a", count: 256)))
-        XCTAssertThrowsError(try RelayClient.validateToken(String(repeating: "a", count: 257)))
-        XCTAssertThrowsError(try RelayClient.validateToken(String(repeating: "a", count: 31)))
-        XCTAssertThrowsError(try RelayClient.validateToken(String(repeating: "a", count: 40) + "\nX-Test: injected"))
-    }
 }

@@ -5,7 +5,6 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var baseURL = ""
-    @State private var token = ""
     @State private var showDeleteConfirmation = false
     @State private var showCacheConfirmation = false
     @State private var showDisconnectConfirmation = false
@@ -22,10 +21,7 @@ struct SettingsView: View {
                     TextField("https://health.example.com", text: $baseURL)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityLabel("同步服务根地址")
-                    SecureField("UPLOAD_TOKEN", text: $token)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityLabel("上传令牌")
-                    Button("保存同步配置") { model.saveConnection(base: baseURL, token: token) }
+                    Button("保存同步配置") { model.saveConnection(base: baseURL) }
                     Button {
                         Task { await model.uploadNow() }
                     } label: {
@@ -39,7 +35,7 @@ struct SettingsView: View {
                         LabeledContent("上次上传", value: date.formatted(date: .abbreviated, time: .shortened))
                     }
                 } header: { Text("眼镜同步") } footer: {
-                    Text("先启动项目内的个人数据服务。此处填写服务根地址和 UPLOAD_TOKEN；Even 插件使用另一个 READ_TOKEN。令牌保存在本机钥匙串。Debug 版可用同一 Wi-Fi 下的局域网 HTTP，正式版需要 HTTPS。")
+                    Text("只填写服务根地址，无需 Token 或登录。当前仅适合可信局域网：能访问服务的人也能查看、上传或删除健康数据，请勿映射公网。Debug 版支持局域网 HTTP，正式版仍要求 HTTPS。")
                 }
 
                 Section {
@@ -67,7 +63,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("版本", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
+                    LabeledContent("版本", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "3"))")
                     LabeledContent("HealthKit 可用", value: model.healthAvailable ? "是" : "否，请用真机测试")
                     Button("生成脱敏诊断文件") { model.exportDiagnostics() }
                     if let file = model.diagnosticsURL {
@@ -78,26 +74,26 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Button("删除服务端摘要", role: .destructive) { showDeleteConfirmation = true }
+                    Button("删除服务端全部历史", role: .destructive) { showDeleteConfirmation = true }
                         .disabled(!model.serverConfigured || model.isUploading)
                     Button("移除本机同步配置", role: .destructive) { showDisconnectConfirmation = true }
                         .disabled(!model.serverConfigured || model.isUploading)
                     Button("清除本机摘要缓存", role: .destructive) { showCacheConfirmation = true }
                         .disabled(model.isRefreshing)
                 } header: { Text("数据管理") } footer: {
-                    Text("删除服务端摘要会关闭自动上传。移除本机配置不会自动删除服务端数据。所有操作都不影响 Apple 健康中的原始记录。")
+                    Text("删除服务端全部历史会关闭自动上传。移除本机配置不会自动删除服务端数据。所有操作都不影响 Apple 健康中的原始记录。")
                 }
             }
             .scrollContentBackground(.hidden).background(Palette.background)
             .navigationTitle("设置与同步").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-            .onAppear { baseURL = model.serverURL; token = model.savedToken() }
-            .confirmationDialog("删除服务端保存的健康摘要？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-                Button("删除摘要并关闭自动上传", role: .destructive) { Task { await model.deleteRemote() } }
-            } message: { Text("眼镜插件将无法再获取此摘要。Apple 健康数据及本机缓存保持不变。") }
+            .onAppear { baseURL = model.serverURL }
+            .confirmationDialog("删除服务端保存的全部健康摘要历史？", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button("删除全部历史并关闭自动上传", role: .destructive) { Task { await model.deleteRemote() } }
+            } message: { Text("MySQL 中全部上传历史和最新摘要都会删除，无法撤销。眼镜将无摘要可读；Apple 健康数据及本机缓存保持不变。") }
             .confirmationDialog("移除本机同步配置？", isPresented: $showDisconnectConfirmation, titleVisibility: .visible) {
-                Button("移除配置", role: .destructive) { model.disconnect(); baseURL = ""; token = "" }
-            } message: { Text("服务端已有摘要不会被删除。需要删除时，请先取消并执行“删除服务端摘要”。") }
+                Button("移除配置", role: .destructive) { model.disconnect(); baseURL = "" }
+            } message: { Text("服务端已有摘要不会被删除。需要删除时，请先取消并执行“删除服务端全部历史”。") }
             .confirmationDialog("清除本机摘要缓存？", isPresented: $showCacheConfirmation, titleVisibility: .visible) {
                 Button("清除缓存", role: .destructive) { model.clearLocalCache() }
             }
