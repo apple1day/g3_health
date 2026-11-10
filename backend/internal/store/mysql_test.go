@@ -36,7 +36,13 @@ func testDB(t *testing.T) *MySQL {
 	if e != nil {
 		t.Fatal(e)
 	}
-	t.Cleanup(func() { s.DB.Exec("DROP TABLE " + s.state); s.DB.Exec("DROP TABLE " + s.table); s.DB.Close() })
+	t.Cleanup(func() {
+		s.DB.Exec("DROP TABLE " + s.recordsTable())
+		s.DB.Exec("DROP TABLE " + s.historyState())
+		s.DB.Exec("DROP TABLE " + s.state)
+		s.DB.Exec("DROP TABLE " + s.table)
+		s.DB.Close()
+	})
 	return s
 }
 func value(t *testing.T, when time.Time) snapshot.Snapshot {

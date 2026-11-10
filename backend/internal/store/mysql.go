@@ -97,7 +97,7 @@ func Migrate(ctx context.Context, c config.Config, createDatabase bool) error {
 			return errors.New("数据库表初始化失败，请检查 MySQL 8.0+ 版本和 CREATE/ALTER 权限")
 		}
 	}
-	return nil
+	return s.migrateHistory(ctx)
 }
 func (s *MySQL) Ping(ctx context.Context) error { return s.DB.PingContext(ctx) }
 func (s *MySQL) Put(ctx context.Context, v snapshot.Snapshot) (time.Time, error) {
@@ -191,6 +191,9 @@ func (s *MySQL) DeleteAll(ctx context.Context) error {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM "+s.table); e != nil {
+		return e
+	}
+	if e = s.deleteHistory(ctx, tx); e != nil {
 		return e
 	}
 	return tx.Commit()

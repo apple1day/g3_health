@@ -114,6 +114,7 @@ final class AppModel: ObservableObject {
     }
 
     func saveConnection(base: String) {
+        guard !HistorySyncModel.shared.isRunning else { errorMessage = "请先暂停历史同步，再修改服务地址。"; return }
         do {
             _ = try RelayClient.endpoint(base: base)
             serverURL = base.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -127,6 +128,8 @@ final class AppModel: ObservableObject {
     }
 
     func disconnect() {
+        guard !HistorySyncModel.shared.isRunning else { errorMessage = "请先暂停历史同步。"; return }
+        HistorySyncModel.shared.invalidateView()
         autoUpload = false
         LegacyRelayCredential.remove()
         serverURL = ""
@@ -157,13 +160,14 @@ final class AppModel: ObservableObject {
     }
 
     func deleteRemote() async {
-        guard !isUploading, serverConfigured else { return }
+        guard !isUploading, serverConfigured, !HistorySyncModel.shared.isRunning else { errorMessage = "请先暂停历史同步后再删除。"; return }
         autoUpload = false
         isUploading = true
         defer { isUploading = false }
         do {
             try await relay.delete(base: serverURL)
-            notice = "服务端全部摘要历史已删除，自动上传已关闭。Apple 健康原始数据保持不变。"
+            HistorySyncModel.shared.invalidateView()
+            notice = "服务端全部摘要与原始历史已删除，自动上传已关闭。Apple 健康原始数据保持不变。"
             errorMessage = nil
             lastUploadAt = nil
             defaults.removeObject(forKey: "relay.lastUploadAt")

@@ -1,7 +1,7 @@
 name: Gin MySQL Vue validation
 on:
   push:
-    branches: [main, feat/gin-mysql-admin, feat/no-token-local-use]
+    branches: [main, feat/healthkit-history, feat/gin-mysql-admin, feat/no-token-local-use]
     paths: ['backend/**', 'web-admin/**', 'evenhub/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']
   pull_request:
     paths: ['backend/**', 'web-admin/**', 'evenhub/**', 'scripts/**', '.github/workflows/gin-mysql-admin.yml']

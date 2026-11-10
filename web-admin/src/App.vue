@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Trend from './Trend.vue';
+import Records from './Records.vue';
 import { request } from './api.mjs';
 import { available, dailySeries, day, lastDays, minutes, move, number, percent, statusLabel, time } from './model.mjs';
 const busy = ref(false), error = ref('');
@@ -55,15 +56,16 @@ onBeforeUnmount(() => { generation++; controller?.abort(); });
    <nav aria-label="主导航">
     <button :class="{ active: tab === 'overview' }" @click="chooseTab('overview')"><span>◫</span> 数据总览</button>
     <button :class="{ active: tab === 'history' }" @click="chooseTab('history')"><span>◷</span> 上传历史</button>
+    <button :class="{ active: tab === 'records' }" @click="chooseTab('records')"><span>▤</span> 全量健康记录</button>
     <button :class="{ active: tab === 'guide' }" @click="chooseTab('guide')"><span>ⓘ</span> 接入说明</button>
    </nav>
    <div class="sidebar-bottom"><span class="dot"></span> Gin + MySQL <p>免登录 · 可信局域网专用</p></div>
   </aside>
   <main>
-   <header class="page-header"><div><span class="eyebrow">HEALTH DATA / {{ tab === 'overview' ? 'OVERVIEW' : tab === 'history' ? 'HISTORY' : 'CONNECTION' }}</span><h1>{{ { overview: '健康数据总览', history: '上传历史', guide: '接入与同步说明' }[tab] }}</h1><p class="subtle">{{ tab === 'overview' ? '所有指标来自已上传的 HealthKit 摘要，不是实时测量。' : tab === 'history' ? '保留每次有效上传，重复重试不会产生新记录。' : '仅需服务地址，健康数据由 iPhone 主动同步。' }}</p></div><button class="secondary" :disabled="busy" @click="refresh(history.page)">{{ busy ? '刷新中…' : '↻ 刷新数据' }}</button></header>
+   <header class="page-header"><div><span class="eyebrow">HEALTH DATA / {{ tab === 'overview' ? 'OVERVIEW' : tab === 'history' ? 'HISTORY' : 'CONNECTION' }}</span><h1>{{ { overview: '健康数据总览', history: '上传历史', records: '全量健康记录', guide: '接入与同步说明' }[tab] }}</h1><p class="subtle">{{ tab === 'overview' ? '所有指标来自已上传的 HealthKit 摘要，不是实时测量。' : tab === 'history' ? '保留每次有效上传，重复重试不会产生新记录。' : '仅需服务地址，健康数据由 iPhone 主动同步。' }}</p></div><button class="secondary" :disabled="busy" @click="refresh(history.page)">{{ busy ? '刷新中…' : '↻ 刷新数据' }}</button></header>
    <div class="notice local-mode-notice" role="note">局域网免登录模式：能访问此服务的人均可查看、上传或删除健康数据。请勿开放公网访问。</div>
    <div v-if="error" class="error banner" role="alert">{{ error }}<span>页面可能保留上一次查询的结果，请核对时间。</span></div>
-   <div v-if="tab !== 'guide'" class="filter-bar"><div class="date-controls"><label>日期范围 <input aria-label="开始日期" type="date" v-model="filters.from" /></label><span>—</span><input aria-label="结束日期" type="date" v-model="filters.to" /><button class="small-button" :disabled="busy" @click="refresh()">查询</button><button class="text-button" :disabled="busy" @click="preset(7)">近 7 天</button><button class="text-button" :disabled="busy" @click="preset(30)">近 30 天</button></div><span class="filter-note">按 iPhone 本地日期筛选 · 时间显示为浏览器本地时区</span></div>
+   <div v-if="tab !== 'guide' && tab !== 'records'" class="filter-bar"><div class="date-controls"><label>日期范围 <input aria-label="开始日期" type="date" v-model="filters.from" /></label><span>—</span><input aria-label="结束日期" type="date" v-model="filters.to" /><button class="small-button" :disabled="busy" @click="refresh()">查询</button><button class="text-button" :disabled="busy" @click="preset(7)">近 7 天</button><button class="text-button" :disabled="busy" @click="preset(30)">近 30 天</button></div><span class="filter-note">按 iPhone 本地日期筛选 · 时间显示为浏览器本地时区</span></div>
    <template v-if="tab === 'overview'">
     <div class="summary-strip"><span><i class="dot"></i> 已保存 <strong>{{ number(overview?.snapshotCount) }}</strong> 份摘要</span><span><strong>{{ number(overview?.dayCount) }}</strong> 个日期有上传</span><span>最新接收 {{ time(overview?.latest?.receivedAt) }}</span></div>
     <section v-if="!latest" class="panel empty-state"><span class="empty-symbol">↥</span><h2>等待第一份健康摘要</h2><p>在 iPhone 的「设置与同步」中仅填写服务地址，<br>保存后回到首页，手动上传一次真实数据。</p><button class="secondary" @click="tab = 'guide'">查看接入说明</button></section>
@@ -90,9 +92,10 @@ onBeforeUnmount(() => { generation++; controller?.abort(); });
    <template v-else-if="tab === 'history'">
     <section class="panel history-panel"><div class="panel-head"><h3>上传记录 <span class="tag">{{ number(history.total) }} 条</span></h3><span class="subtle">第 {{ history.page }} 页</span></div><div class="table-scroll"><table><thead><tr><th>日期 / 手机时区</th><th>手机生成时间</th><th>服务接收时间</th><th>步数</th><th>睡眠</th><th>详情</th></tr></thead><tbody><tr v-for="r in history.items" :key="r.id"><td>{{ r.snapshot.day }}<small class="cell-subtle">{{ r.snapshot.timeZone }}</small></td><td>{{ time(r.snapshot.generatedAt) }}</td><td>{{ time(r.receivedAt) }}</td><td>{{ number(r.snapshot.activity.steps) }}</td><td>{{ minutes(r.snapshot.sleep.totalMinutes) }}</td><td><button class="text-button" @click="detail = r">查看</button></td></tr><tr v-if="!history.items.length"><td colspan="6" class="table-empty">这个日期范围没有上传记录。</td></tr></tbody></table></div><div class="pagination"><span>每页 {{ history.pageSize }} 条</span><button class="secondary" :disabled="busy || history.page <= 1" @click="refresh(history.page-1)">上一页</button><button class="secondary" :disabled="busy || history.page * history.pageSize >= history.total" @click="refresh(history.page+1)">下一页</button></div></section>
    </template>
+   <Records v-else-if="tab === 'records'" />
    <template v-else>
     <section class="panel guide"><h2>只填地址，即可同步</h2><div class="guide-step"><b>01</b><div><h3>iPhone 保存服务地址</h3><p>填写 Mac 的局域网地址，例如 <code>http://192.168.19.152:8787</code>。不需要 Token、账号或密码。</p><p>保存后回首页读取并上传真实摘要；保存配置本身不会上传健康数据。</p></div></div><div class="guide-step"><b>02</b><div><h3>眼镜连接同一服务</h3><p>Even 插件也只填写相同地址。网络白名单与 CORS 仍需允许插件访问。</p></div></div><div class="guide-step"><b>03</b><div><h3>后台直接查看</h3><p>打开 /admin/ 自动加载总览，刷新页面无需重新登录。此版本没有身份验证，仅适合可信局域网；后续账号密码功能尚未实现。</p></div></div></section>
-    <section class="notice"><h3>数据范围与隐私</h3><p>这是单用户个人数据库，不是多用户医疗系统。只保存 iPhone 上传的摘要，不会主动从苹果服务器抓取数据；无法补齐未上传日期或所有逐条心率/运动原始记录。</p><p>按天图表取当天最后一份摘要，多个上传的步数、能量和睡眠时长不会相加。睡眠按原有跨夜口径，可能包含小睡；无数据不等于零。</p><p>iPhone 的删除服务器数据操作会删除 MySQL 中全部摘要历史。不要将免登录服务暴露公网；HTTPS 不会增加身份认证。请使用受限数据库账号并保护备份。</p></section>
+    <section class="notice"><h3>数据范围与隐私</h3><p>这是单用户个人数据库，不是多用户医疗系统。支持今日摘要与独立的全量原始记录归档。历史需在手机「历史」页面主动同步；仅能获取手机中已有且获准读取的数据，不会直接访问苹果服务器。</p><p>按天图表取当天最后一份摘要，多个上传的步数、能量和睡眠时长不会相加。睡眠按原有跨夜口径，可能包含小睡；无数据不等于零。</p><p>iPhone 的删除服务器数据操作会删除 MySQL 中全部摘要与原始记录历史。不要将免登录服务暴露公网；HTTPS 不会增加身份认证。请使用受限数据库账号并保护备份。</p></section>
    </template>
    <footer class="page-footer">健康速览 / PERSONAL HEALTH DATA <span>仅展示已有记录，不提供医学诊断。</span></footer>
   </main>
