@@ -13,12 +13,14 @@ struct DashboardView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingSettings = false
     @State private var showingHistory = false
+    @State private var showingSleepSources = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     header
+                    sleepSourcesEntry
                     if model.isDemo {
                         HStack(alignment: .top) {
                             Image(systemName: "sparkles")
@@ -64,7 +66,7 @@ struct DashboardView: View {
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("数据来自 Apple 健康").font(.footnote.weight(.semibold))
-                        Text("手表先同步到 iPhone，本 App 再读取已有记录。最近一次心率不是实时监测；无数据可能是尚未记录、尚未同步或未允许读取。")
+                        Text("Apple Watch 或 OPPO 等来源先共享到苹果健康，本 App 再读取已有记录。最近一次心率不是实时监测；无数据可能是尚未记录、尚未共享或未允许读取。")
                             .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }.padding(.vertical, 4)
                 }
@@ -90,7 +92,25 @@ struct DashboardView: View {
             }
             .sheet(isPresented: $showingSettings) { SettingsView() }
             .sheet(isPresented: $showingHistory) { HistoryView() }
+            .sheet(isPresented: $showingSleepSources) { SleepSourcesView() }
         }
+    }
+
+    private var sleepSourcesEntry: some View {
+        Button { showingSleepSources = true } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "moon.zzz.fill").font(.title2).foregroundStyle(Palette.lavender)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("OPPO / 其他来源睡眠").font(.headline).foregroundStyle(.primary)
+                    Text("按来源查看历史、核对日期范围、导出 JSON / CSV")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary)
+            }
+            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.lavender.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+        }.buttonStyle(.plain)
     }
 
     private var header: some View {
@@ -112,8 +132,8 @@ struct DashboardView: View {
             Image(systemName: "heart.text.square.fill")
                 .font(.system(size: 54)).foregroundStyle(Palette.mint)
             VStack(alignment: .leading, spacing: 10) {
-                Text("从你的 Apple Watch 开始").font(.title2.bold())
-                Text("读取睡眠汇总、今天的活动和最近一次运动。先在手机核对，配置服务后即可在眼镜上查看摘要。")
+                Text("从苹果健康中的记录开始").font(.title2.bold())
+                Text("读取 Apple Watch、OPPO 健康等已共享来源的睡眠和运动。先在手机核对，配置服务后即可在眼镜上查看摘要。")
                     .font(.body).foregroundStyle(.secondary)
             }
             Button { Task { await model.authorize() } } label: {
@@ -205,7 +225,10 @@ struct SummaryCard<Content: View>: View {
 }
 
 struct SleepCard: View {
+    @Environment(\.dynamicTypeSize) var dynamicTypeSize
     let sleep: SleepSummary
+    var periodNote = "昨日中午至今日中午；上午读取时截止到读取时刻，包含区间内的小睡。"
+    var emptyMessage = "此统计区间暂无可汇总的已睡记录。请确认来源 App 或设备已将睡眠共享到苹果健康，并允许本 App 读取。"
     private var stages: [(String, Double?, Color)] {
         [("核心", sleep.coreMinutes, Palette.lavender), ("深度", sleep.deepMinutes, .indigo),
          ("REM", sleep.remMinutes, Palette.cyan), ("未分类", sleep.unspecifiedMinutes, .gray)]
@@ -228,7 +251,7 @@ struct SleepCard: View {
                         }
                     }
                 }.frame(height: 10).accessibilityHidden(true)
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), alignment: .leading, spacing: 12) {
                     ForEach(0..<stages.count, id: \.self) { index in
                         HStack(spacing: 6) {
                             Circle().fill(stages[index].2).frame(width: 6, height: 6)
@@ -240,8 +263,8 @@ struct SleepCard: View {
                 }
                 Text("夜间清醒 \(sleep.awakeMinutes.map { duration(minutes: $0) } ?? "—") · \(sleep.sourceName ?? "Apple 健康")")
                     .font(.caption).foregroundStyle(.secondary)
-            } else { EmptySection(status: sleep.status, text: "此统计区间暂无可读取的睡眠。请确认手表已记录并同步到 iPhone。") }
-            Text("昨日中午至今日中午；上午读取时截止到读取时刻，包含区间内的小睡。")
+            } else { EmptySection(status: sleep.status, text: emptyMessage) }
+            Text(periodNote)
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

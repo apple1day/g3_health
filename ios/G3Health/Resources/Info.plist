@@ -31,9 +31,9 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
-	<string>读取你允许分享的睡眠、活动、心率和运动记录，在本机和你配置的眼镜服务中展示摘要。不会修改 Apple 健康数据。</string>
+	<string>读取你授权的 Apple 健康历史，按来源查看和导出睡眠（包括 OPPO 健康已共享的记录），并在你主动同步时发送到个人服务。不会修改 Apple 健康数据。</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>连接你在同一 Wi-Fi 下启动的个人健康摘要服务，将你选择同步的摘要提供给眼镜插件。</string>
+	<string>连接你在同一 Wi-Fi 下启动的个人健康服务，上传你选择同步的摘要或历史记录，供管理后台和眼镜插件查看。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

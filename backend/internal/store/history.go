@@ -133,16 +133,47 @@ func historyWhere(f history.Filter) (string, []any) {
 		q += " AND local_day<=?"
 		a = append(a, f.To)
 	}
+	if f.SourceID != "" {
+		// Source IDs are opaque identifiers: compare exact bytes, including case
+		// and trailing spaces, regardless of the database's default collation.
+		q += " AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.sourceID')) AS BINARY)=CAST(? AS BINARY)"
+		a = append(a, f.SourceID)
+	}
 	return q, a
 }
 func (s *MySQL) HistoryList(ctx context.Context, f history.Filter) (history.Page, error) {
-	p := history.Page{Items: []history.Row{}}
+	p := history.Page{Items: []history.Row{}, Sources: []history.SourceSummary{}}
 	q, a := historyWhere(f)
 	tx, e := s.DB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if e != nil {
 		return p, e
 	}
 	defer tx.Rollback()
+	// Read the source inventory in the same consistent snapshot as total/items.
+	// It includes sources across the full kind/date range, not just this page.
+	sourceFilter := f
+	sourceFilter.SourceID = ""
+	sourceWhere, sourceArgs := historyWhere(sourceFilter)
+	sourceRows, e := tx.QueryContext(ctx, "SELECT CAST(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.sourceID')) AS BINARY) AS source_id, MAX(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.sourceName'))), COUNT(*), MIN(started_ns), MAX(ended_ns) FROM "+s.recordsTable()+sourceWhere+" GROUP BY source_id ORDER BY source_id", sourceArgs...)
+	if e != nil {
+		return p, e
+	}
+	for sourceRows.Next() {
+		var source history.SourceSummary
+		var start, end int64
+		if e = sourceRows.Scan(&source.SourceID, &source.SourceName, &source.Count, &start, &end); e != nil {
+			sourceRows.Close()
+			return p, e
+		}
+		source.Earliest = time.Unix(0, start).UTC()
+		source.Latest = time.Unix(0, end).UTC()
+		p.Sources = append(p.Sources, source)
+	}
+	e = sourceRows.Err()
+	sourceRows.Close()
+	if e != nil {
+		return p, e
+	}
 	if e = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+s.recordsTable()+q, a...).Scan(&p.Total); e != nil {
 		return p, e
 	}

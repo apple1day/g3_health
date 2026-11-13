@@ -13,11 +13,17 @@ struct HistoryView: View {
     @State private var kind: HistoryKind = .sleep
     @State private var showRescan = false
     @State private var section = 0
+    @State private var showingSleepSources = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    Button { showingSleepSources = true } label: {
+                        Label("OPPO / 其他来源睡眠：本机查看与导出", systemImage: "moon.zzz.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }.buttonStyle(.bordered)
                     Picker("历史查看方式", selection: $section) {
                         Text("本机按日查看").tag(0)
                         Text("全部记录与同步").tag(1)
@@ -27,6 +33,7 @@ struct HistoryView: View {
             }.background(Palette.background)
             .navigationTitle("历史健康记录").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+            .sheet(isPresented: $showingSleepSources) { SleepSourcesView() }
             .onChange(of: scenePhase) { _, phase in if phase != .active { history.pause() } }
             .onChange(of: kind) { _, _ in Task { await history.load(base: app.serverURL, kind: kind) } }
             .onChange(of: selectedDay) { _, _ in localSnapshot = nil; dayError = nil }
@@ -58,7 +65,7 @@ struct HistoryView: View {
             if let error = dayError { Text(error).foregroundStyle(.orange) }
             if let s = localSnapshot {
                 Text("历史日期：\(s.day) · \(s.timeZone)").font(.headline)
-                SleepCard(sleep: s.sleep)
+                SleepCard(sleep: s.sleep, periodNote: "\(s.day) · 前一日中午至所选日中午，按手机当前时区汇总。")
                 ActivityCard(activity: s.activity, day: s.day)
                 HStack {
                     SmallMetric(title: "当日步数", symbol: "figure.walk", value: number(s.activity.steps), unit: "步", color: Palette.mint)
@@ -74,7 +81,7 @@ struct HistoryView: View {
     private var archiveView: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("全量历史归档").font(.title2.bold())
-            Text("从手机健康库读取所有可访问的睡眠、运动、活动三环、步数、距离、能量、锻炼和心率记录，没有近 30 天限制。不同来源样本会保留，不能直接相加当作每日总量。").font(.footnote).foregroundStyle(.secondary)
+            Text("从手机健康库读取所有可访问的睡眠、运动、活动三环、步数、距离、能量、锻炼和心率记录。应用不按日期截断，实际可读范围取决于系统授权与已共享样本。不同来源会保留，不能直接相加当作每日总量。").font(.footnote).foregroundStyle(.secondary)
             Text("此操作会将逐条健康记录发送到你配置的服务器，不只发送摘要。免登录服务仅用于可信局域网。").font(.footnote).foregroundStyle(.orange)
             if !app.serverConfigured { Text("请先在设置中保存服务地址；本机按日查看仍可使用。").foregroundStyle(.orange) }
             if app.isDemo { Text("请先退出演示模式再同步真实历史。").foregroundStyle(.orange) }

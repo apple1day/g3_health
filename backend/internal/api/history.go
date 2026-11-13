@@ -39,8 +39,8 @@ func (s *Server) historyRoutes(r *gin.Engine) {
 		if unavailable(c) {
 			return
 		}
-		f := history.Filter{Kind: c.Query("kind"), From: c.Query("from"), To: c.Query("to"), Limit: 50}
-		if f.Kind != "" && !history.ValidKind(f.Kind) || f.From != "" && !history.ValidDay(f.From) || f.To != "" && !history.ValidDay(f.To) || f.From != "" && f.To != "" && f.From > f.To {
+		f := history.Filter{Kind: c.Query("kind"), From: c.Query("from"), To: c.Query("to"), SourceID: c.Query("sourceID"), Limit: 50}
+		if f.Kind != "" && !history.ValidKind(f.Kind) || f.From != "" && !history.ValidDay(f.From) || f.To != "" && !history.ValidDay(f.To) || f.From != "" && f.To != "" && f.From > f.To || !history.ValidSourceID(f.SourceID) {
 			fail(c, 400, "Invalid history filter.")
 			return
 		}

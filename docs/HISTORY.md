@@ -1,4 +1,6 @@
-# 0.4.0：全量 HealthKit 历史记录
+# 全量 HealthKit 历史记录（0.5.0）
+
+只想在本机读取、按来源查看和导出 OPPO 睡眠，可使用首页新增入口，无需配置服务器。详见 [OPPO 睡眠历史说明](OPPO_HISTORY.md)。
 
 ## 升级
 
@@ -16,7 +18,7 @@ bash start-server.sh
 bash setup-ios.sh
 ```
 
-Xcode 保持原 Team / Bundle ID，Command+R 覆盖安装 **0.4.0 (4)**。不卸载 App、不重建数据库、不填写 Token。仅更新服务端不会更新手机 UI。原 MySQL 配置保留；新增两张表，原摘要数据不删除。旧 Python 回退服务没有历史接口。
+Xcode 保持原 Team / Bundle ID，Command+R 覆盖安装 **0.5.0 (6)**。不卸载 App、不重建数据库、不填写 Token。仅更新服务端不会更新手机 UI。原 MySQL 配置保留；初始化只创建缺失的表，原摘要与历史数据不删除。旧 Python 回退服务没有历史接口。
 
 ## 手机
 
@@ -33,7 +35,7 @@ Xcode 保持原 Team / Bundle ID，Command+R 覆盖安装 **0.4.0 (4)**。不卸
 
 ## 后台
 
-打开 `/admin/` → **全量健康记录**：默认所有日期，可筛类型/开始与结束日期、加载更早记录、查看 JSON 详情。手机的服务器历史列表也支持按类型加载更早记录。
+打开 `/admin/` → **全量健康记录**：默认所有日期，可筛类型、来源、开始与结束日期，加载更早记录并查看 JSON 详情。来源选项的数量和覆盖日期统计符合类型与日期条件的全部记录，不受当前分页或所选来源限制。手机的服务器历史列表也支持按类型加载更早记录。
 
 数据总览/旧上传历史仍然是原来的实时摘要路径，新原始档案不冒充过去日的摘要，也不覆盖今天的眼镜数据。旧趋势不会因导入原始样本自动补齐；历史睡眠每日总时长可先在手机「本机按日查看」读取。原始睡眠有重叠来源和卧床片段，步数也可能有手机与手表重复覆盖，**不能直接 SUM 原始值当成每日结果**。逐样本保留来源；每日总量使用 HealthKit 统计，睡眠日汇总使用既有来源选择/区间去重算法。
 
@@ -50,7 +52,7 @@ Xcode 保持原 Team / Bundle ID，Command+R 覆盖安装 **0.4.0 (4)**。不卸
 
 - `GET /v1/history/status`：epoch、总量、分类计数和时间范围。
 - `PUT /v1/history/batch`：schemaVersion=1、epoch、kind、records、deletedIDs；每批最多 200、请求不超过 1 MiB；同 UUID 更新，删除只按明确 ID。
-- `GET /v1/history/records`：kind/from/to/limit/cursor，单页 1..100，默认 50；按样本开始日期筛选，无总历史日期上限。
+- `GET /v1/history/records`：kind/sourceID/from/to/limit/cursor，单页 1..100，默认 50；按样本开始日期筛选，应用不设总历史日期上限。`sourceID` 精确匹配保存的来源标识；新增 `sources` 返回全部候选来源的 `sourceID/sourceName/count/earliest/latest`，忽略当前来源与游标，但保留类型和日期条件。旧客户端可以忽略新增字段。
 - `GET /api/admin/records` 与 `/api/admin/records/status`：后台同源查看。
 - 现有 `DELETE /v1/snapshot`：明确删除**所有摘要与原始历史**，不影响 Apple 健康原始记录，也不自动清除外部备份。
 

@@ -48,7 +48,8 @@ final class HealthHistoryReader {
             startedAt: sample.startDate, endedAt: sample.endDate,
             day: HealthSnapshot.dayString(sample.startDate, calendar: calendar), timeZone: zone.identifier,
             sourceID: String(source.bundleIdentifier.prefix(160)), sourceName: clean(source.name), device: clean(device),
-            isAppleWatch: device.lowercased().hasPrefix("watch") || device.localizedCaseInsensitiveContains("apple watch"),
+            isAppleWatch: HealthSourceIdentity.isAppleWatch(productType: sample.sourceRevision.productType,
+                model: sample.device?.model, manufacturer: sample.device?.manufacturer),
             unit: "", label: kind.title)
         if let s = sample as? HKCategorySample {
             r.category = s.value; r.unit = "min"; r.value = max(0, s.endDate.timeIntervalSince(s.startDate) / 60)

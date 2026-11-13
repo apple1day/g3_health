@@ -60,14 +60,29 @@ type Row struct {
 	ReceivedAt time.Time `json:"receivedAt"`
 }
 type Page struct {
-	Items      []Row  `json:"items"`
-	Total      int64  `json:"total"`
-	NextCursor string `json:"nextCursor"`
+	Items      []Row           `json:"items"`
+	Total      int64           `json:"total"`
+	NextCursor string          `json:"nextCursor"`
+	Sources    []SourceSummary `json:"sources"`
+}
+
+// SourceSummary describes a source matching the kind/date filters, independently of
+// the selected source and pagination. Counts are raw samples, not nights or totals.
+type SourceSummary struct {
+	SourceID   string    `json:"sourceID"`
+	SourceName string    `json:"sourceName"`
+	Count      int64     `json:"count"`
+	Earliest   time.Time `json:"earliest"`
+	Latest     time.Time `json:"latest"`
 }
 type Filter struct {
-	Kind, From, To     string
-	BeforeNS, BeforeID int64
-	Limit              int
+	Kind, From, To, SourceID string
+	BeforeNS, BeforeID       int64
+	Limit                    int
+}
+
+func ValidSourceID(s string) bool {
+	return utf8.ValidString(s) && utf8.RuneCountInString(s) <= 160 && !strings.ContainsAny(s, "\x00\r\n")
 }
 
 func ValidKind(k string) bool {
