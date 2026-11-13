@@ -16,7 +16,7 @@ final class RelayStatusStore: ObservableObject {
     }
     func fail(_ attempt: RelaySyncState.Attempt?, error: Error) {
         guard let attempt else { return }
-        let failure = error as? RelayFailure ?? (error is CancellationError ? RelayFailure.transport(error) : RelayFailure(code: "invalidResponse", message: "服务响应未能验证，请更新 App 与后端后重试。", reachedServer: true))
+        let failure = error as? RelayFailure ?? (error is CancellationError ? RelayFailure.transport(error) : RelayFailure(code: "requestPreparation", message: "本次请求未能完成准备或验证，请刷新数据后重试。"))
         state.fail(attempt, code: failure.code, message: failure.message,
                    transport: failure.isTransportFailure, networkCode: failure.networkCode, responseReceived: failure.reachedServer)
     }

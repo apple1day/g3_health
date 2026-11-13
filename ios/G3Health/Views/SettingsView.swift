@@ -22,6 +22,7 @@ struct SettingsView: View {
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityLabel("同步服务根地址")
                     Button("保存同步配置") { model.saveConnection(base: baseURL) }
+                        .disabled(model.isUploading || model.isCheckingConnection)
                     Button {
                         Task { await model.uploadNow() }
                     } label: {
