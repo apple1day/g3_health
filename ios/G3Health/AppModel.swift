@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var isAuthorizing = false
     @Published private(set) var isUploading = false
+    @Published private(set) var isCheckingConnection = false
     @Published private(set) var hasRequestedReadAccess = false
     @Published private(set) var backgroundEnabled = false
     @Published private(set) var serverURL = ""
@@ -43,7 +44,9 @@ final class AppModel: ObservableObject {
         LegacyRelayCredential.remove()
         realSnapshot = cache.read()
         isCached = realSnapshot != nil
-        lastUploadAt = defaults.object(forKey: "relay.lastUploadAt") as? Date
+        // Old timestamps were not tied to a server address and are not proof of a current upload.
+        defaults.removeObject(forKey: "relay.lastUploadAt")
+        RelayStatusStore.shared.configure(serverURL)
     }
 
     func authorize() async {
@@ -117,7 +120,13 @@ final class AppModel: ObservableObject {
         guard !HistorySyncModel.shared.isRunning else { errorMessage = "请先暂停历史同步，再修改服务地址。"; return }
         do {
             _ = try RelayClient.endpoint(base: base)
-            serverURL = base.trimmingCharacters(in: .whitespacesAndNewlines)
+            let next = base.trimmingCharacters(in: .whitespacesAndNewlines)
+            if RelaySyncState.normalized(next) != RelaySyncState.normalized(serverURL) {
+                lastUploadAt = nil
+                HistorySyncModel.shared.invalidateView()
+            }
+            serverURL = next
+            RelayStatusStore.shared.configure(serverURL)
             defaults.set(serverURL, forKey: "relay.baseURL")
             LegacyRelayCredential.remove()
             notice = "服务地址已保存；免 Token 模式，点击“同步到眼镜服务”发送摘要。"
@@ -133,6 +142,9 @@ final class AppModel: ObservableObject {
         autoUpload = false
         LegacyRelayCredential.remove()
         serverURL = ""
+        RelayStatusStore.shared.configure("")
+        lastUploadAt = nil
+        errorMessage = nil; lastFailureCode = nil
         defaults.removeObject(forKey: "relay.baseURL")
         notice = "已移除本机同步配置。服务端旧摘要如需删除，请先使用原配置执行删除。"
     }
@@ -148,31 +160,45 @@ final class AppModel: ObservableObject {
         guard !isUploading, !isDemo else { return }
         guard serverConfigured else { errorMessage = "请先在设置中保存同步服务地址。"; return }
         isUploading = true
+        let base = serverURL
+        let generation = RelayStatusStore.shared.state.generation
         defer { isUploading = false }
         do {
-            try await relay.upload(snapshot, base: serverURL)
-            lastUploadAt = Date()
-            defaults.set(lastUploadAt, forKey: "relay.lastUploadAt")
-            notice = "摘要已同步。可在眼镜插件中刷新查看。"
-            lastFailureCode = nil; errorMessage = nil
-        } catch let error as RelayFailure { lastFailureCode = error.code; errorMessage = error.message }
-        catch { lastFailureCode = "uploadFailed"; errorMessage = "摘要同步失败，请稍后重试。" }
+            let receipt = try await relay.upload(snapshot, base: base)
+            guard generation == RelayStatusStore.shared.state.generation else { return }
+            lastUploadAt = receipt.receivedAt
+            notice = receipt.recoveredByReadback ? "已回查服务器，确认这份摘要已保存。" : "摘要已获服务端确认。可在眼镜插件中刷新查看。"
+            // Do not clear an unrelated HealthKit failure produced while this request was in flight.
+        } catch {
+            // RelayStatusStore owns request-scoped failures for BOTH summary and history.
+            // A failed request must not leave a global "cannot connect" banner after recovery.
+            guard generation == RelayStatusStore.shared.state.generation else { return }
+            notice = nil
+        }
+    }
+
+    func checkConnection() async {
+        guard serverConfigured, !isCheckingConnection else { return }
+        isCheckingConnection = true
+        defer { isCheckingConnection = false }
+        do { try await relay.checkConnection(base: serverURL) }
+        catch { /* The shared request state displays the precise result; never mark an upload successful. */ }
     }
 
     func deleteRemote() async {
         guard !isUploading, serverConfigured, !HistorySyncModel.shared.isRunning else { errorMessage = "请先暂停历史同步后再删除。"; return }
         autoUpload = false
         isUploading = true
+        let base = serverURL
         defer { isUploading = false }
         do {
-            try await relay.delete(base: serverURL)
+            try await relay.delete(base: base)
+            guard RelaySyncState.normalized(base) == RelaySyncState.normalized(serverURL) else { return }
             HistorySyncModel.shared.invalidateView()
             notice = "服务端全部摘要与原始历史已删除，自动上传已关闭。Apple 健康原始数据保持不变。"
-            errorMessage = nil
             lastUploadAt = nil
             defaults.removeObject(forKey: "relay.lastUploadAt")
-        } catch let error as RelayFailure { lastFailureCode = error.code; errorMessage = error.message }
-        catch { lastFailureCode = "deleteFailed"; errorMessage = "未能删除服务端摘要，请稍后重试。" }
+        } catch { notice = nil }
     }
 
     func setupBackgroundAtLaunch() {
@@ -227,6 +253,15 @@ final class AppModel: ObservableObject {
             "backgroundDeliveryEnabled": backgroundEnabled,
             "lastFailureCode": lastFailureCode ?? "none"
         ]
+        let sync = RelayStatusStore.shared.state
+        report["relayContactConfirmedThisSession"] = sync.lastContactAt != nil
+        report["snapshotConfirmedThisSession"] = sync.lastSnapshotAt != nil
+        report["historyBatchConfirmedThisSession"] = sync.lastHistoryBatchAt != nil
+        report["relayRequestIssues"] = sync.issues.mapValues { issue -> [String: Any] in
+            var value: [String: Any] = ["code": issue.code, "transport": issue.transport]
+            if let code = issue.networkCode { value["urlErrorCode"] = code }
+            return value
+        }.reduce(into: [String: [String: Any]]()) { $0[$1.key.rawValue] = $1.value }
         if let snapshot = realSnapshot {
             report["sectionStatuses"] = ["sleep": snapshot.sleep.status.rawValue,
                 "activity": snapshot.activity.status.rawValue, "heartRate": snapshot.heartRate.status.rawValue,
