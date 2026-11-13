@@ -20,6 +20,7 @@ func TestHistoricalRecordsAndStrictValidation(t *testing.T) {
 		t.Fatal(e)
 	}
 	tests := []string{
+		strings.Replace(string(raw), `"schemaVersion":1`, `"schemaVersion":2`, 1),
 		strings.Replace(string(raw), `"schemaVersion":1`, `"schemaVersion":true`, 1),
 		strings.Replace(string(raw), `"schemaVersion":1`, `"schemaVersion":1.0`, 1),
 		strings.Replace(string(raw), `"schemaVersion":1`, `"schemaVersion":1,"schemaVersion":1`, 1),
@@ -35,6 +36,31 @@ func TestHistoricalRecordsAndStrictValidation(t *testing.T) {
 	for _, raw := range tests {
 		if _, e := Parse([]byte(raw), time.Now()); e == nil {
 			t.Error("invalid batch accepted")
+		}
+	}
+}
+func TestSourceIdentityLimits(t *testing.T) {
+	for _, source := range []string{"com.heytap.health", "com.heytap.health ", "foo' OR 1=1 --", strings.Repeat("欢", 160)} {
+		b := testBatch()
+		b.Records[0].SourceID, b.Records[0].SourceName = source, strings.Repeat("太", 160)
+		raw, _ := json.Marshal(b)
+		parsed, err := Parse(raw, time.Now())
+		if err != nil || parsed.Records[0].SourceID != source {
+			t.Fatal("valid source identity changed", err)
+		}
+	}
+	for _, source := range []string{"", strings.Repeat("a", 161), strings.Repeat("欢", 161), "source\nname", "source\rname", "source\x00name"} {
+		for _, field := range []string{"id", "name"} {
+			b := testBatch()
+			if field == "id" {
+				b.Records[0].SourceID = source
+			} else {
+				b.Records[0].SourceName = source
+			}
+			raw, _ := json.Marshal(b)
+			if _, err := Parse(raw, time.Now()); err == nil {
+				t.Fatal("invalid source accepted", field)
+			}
 		}
 	}
 }

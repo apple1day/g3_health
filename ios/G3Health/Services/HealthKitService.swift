@@ -64,8 +64,8 @@ final class HealthKitService {
             }
             let source = sample.sourceRevision.source
             let product = sample.sourceRevision.productType ?? ""
-            let model = sample.device?.model ?? ""
-            let watch = product.lowercased().hasPrefix("watch") || model.localizedCaseInsensitiveContains("watch")
+            let watch = HealthSourceIdentity.isAppleWatch(productType: product,
+                model: sample.device?.model, manufacturer: sample.device?.manufacturer)
             let sourceID = source.bundleIdentifier + "|" + (sample.device?.localIdentifier ?? product)
             return SleepSegment(start: sample.startDate, end: sample.endDate, stage: stage,
                 sourceID: sourceID, sourceName: watch ? "Apple Watch" : String(source.name.prefix(160)), isAppleWatch: watch)

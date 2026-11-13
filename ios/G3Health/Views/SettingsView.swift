@@ -58,11 +58,11 @@ struct SettingsView: View {
                         dismiss()
                     }.disabled(model.isRefreshing || model.isAuthorizing)
                 } header: { Text("Apple 健康") } footer: {
-                    Text("系统不向 App 透露每种读取权限是否被拒绝。没有数据时，请到“健康”App → 头像 → App 与服务 → 健康速览，核对所需读取权限，并确认 Apple Watch 已完成同步。本 App 不写入或删除 Apple 健康记录。")
+                    Text("系统不向 App 透露每种读取权限是否被拒绝。没有数据时，请到“健康”App → 头像 → App 与服务 → 健康速览，核对读取权限与历史范围，并确认 Apple Watch、OPPO 健康等来源已共享记录。本 App 不写入或删除 Apple 健康记录。")
                 }
 
                 Section {
-                    LabeledContent("版本", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.4.1") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "5"))")
+                    LabeledContent("版本", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.5.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "6"))")
                     LabeledContent("HealthKit 可用", value: model.healthAvailable ? "是" : "否，请用真机测试")
                     Button("生成脱敏诊断文件") { model.exportDiagnostics() }
                     if let file = model.diagnosticsURL {

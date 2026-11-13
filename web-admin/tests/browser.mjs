@@ -108,7 +108,7 @@ try {
  const records = Array.from({ length: 120 }, (_, i) => ({
   id: `00000000-0000-4000-8000-${String(i).padStart(12,'0')}`, kind: 'sleep',
   startedAt: '2018-01-01T22:00:00Z', endedAt: '2018-01-01T23:00:00Z', day: '2018-01-01', timeZone: 'UTC',
-  sourceID: 'test.watch', sourceName: 'CI Apple Watch', device: 'Watch', isAppleWatch: true,
+  sourceID: i % 2 ? 'test.oppo.health' : 'test.apple.watch', sourceName: i % 2 ? 'CI OPPO 健康' : 'CI Apple Watch', device: i % 2 ? 'OnePlus Watch' : 'Apple Watch', isAppleWatch: i % 2 === 0,
   value: 60, unit: 'min', category: 3, label: '核心睡眠', metrics: {},
  }));
  const batch = { schemaVersion: 1, epoch: initialHistory.epoch, kind: 'sleep', records, deletedIDs: [] };
@@ -129,6 +129,31 @@ try {
  await page.getByRole('dialog').waitFor();
  assert.ok((await page.getByRole('dialog').innerText()).includes('2018-01-01'));
  await page.getByRole('button', { name: '关闭', exact: true }).click();
+ // Source counts cover the whole date/type selection, and a new source resets the cursor.
+ const sources = page.getByLabel('历史记录来源');
+ await expect(sources.locator('option')).toHaveCount(3);
+ await sources.selectOption('test.oppo.health');
+ await expect(page.getByText('已显示 50 条')).toBeVisible();
+ await expect(page.locator('.source-summary')).toContainText('60 条原始记录');
+ await expect(page.locator('.source-summary')).toContainText('2018');
+ assert.ok((await page.locator('tbody tr').allTextContents()).every(row => row.includes('CI OPPO 健康')), 'source filtering included another source');
+ await expect(sources.locator('option')).toHaveCount(3);
+ await page.getByRole('button', { name: '加载更早记录' }).click();
+ await expect(page.getByText('已显示 60 条')).toBeVisible();
+ assert.equal(await page.getByRole('button', { name: '加载更早记录' }).count(), 0);
+ await sources.selectOption('test.apple.watch');
+ await expect(page.getByText('已显示 50 条')).toBeVisible();
+ assert.ok((await page.locator('tbody tr').allTextContents()).every(row => row.includes('CI Apple Watch')), 'changing source reused the old cursor');
+ await page.getByLabel('历史开始日期').fill('2019-01-01');
+ await page.getByRole('button', { name: '筛选记录' }).click();
+ await expect(page.getByText('尚无匹配的历史记录。请先在 iPhone 同步全部历史，并核对健康读取权限。')).toBeVisible();
+ await expect(sources).toHaveValue('test.apple.watch');
+ assert.equal(await page.locator('.source-summary').count(), 0, 'stale source coverage remained visible');
+ await page.getByRole('button', { name: '全部日期', exact: true }).click();
+ await expect(page.getByText('已显示 50 条')).toBeVisible();
+ await page.getByRole('button', { name: '全部来源', exact: true }).click();
+ await expect(sources).toHaveValue('');
+ await expect(page.locator('.compact-table .tag')).toHaveText('120 条');
  await page.getByLabel('历史记录类型').selectOption('heartRate');
  await expect(page.getByText('尚无匹配的历史记录。请先在 iPhone 同步全部历史，并核对健康读取权限。')).toBeVisible();
  await page.setViewportSize({ width: 390, height: 844 });
