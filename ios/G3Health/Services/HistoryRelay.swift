@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 extension RelayClient {
     static func historyURL(base: String, path: String, query: [URLQueryItem] = [], allowLocalHTTP: Bool = allowsLocalHTTP) throws -> URL {
@@ -12,9 +15,21 @@ extension RelayClient {
         return url
     }
     func historyGET<T: Decodable>(base: String, path: String, query: [URLQueryItem] = []) async throws -> T {
-        var request = URLRequest(url: try Self.historyURL(base: base, path: path, query: query))
-        request.timeoutInterval = 30
-        return try HealthSnapshot.decoder.decode(T.self, from: await historyData(request))
+        let tracker = await RelayStatusStore.shared
+        let attempt = await tracker.begin(.historyRead, base: base)
+        do {
+            var request = URLRequest(url: try Self.historyURL(base: base, path: path, query: query))
+            request.timeoutInterval = 30
+            let data = try await historyData(request)
+            guard let value = try? HealthSnapshot.decoder.decode(T.self, from: data) else {
+                throw RelayFailure(code: "historyResponse", message: "历史服务已响应，但数据格式未通过验证。", reachedServer: true)
+            }
+            await tracker.succeed(attempt)
+            return value
+        } catch {
+            await tracker.fail(attempt, error: error)
+            throw error
+        }
     }
     static func historyUploadRequest(_ batch: HealthHistoryBatch, base: String, allowLocalHTTP: Bool = allowsLocalHTTP) throws -> URLRequest {
         guard batch.records.count + batch.deletedIDs.count <= 200 else { throw RelayFailure(code: "batchTooLarge", message: "历史批次过大。") }
@@ -26,25 +41,31 @@ extension RelayClient {
         return request
     }
     func uploadHistory(_ batch: HealthHistoryBatch, base: String) async throws {
-        _ = try await historyData(Self.historyUploadRequest(batch, base: base))
+        let tracker = await RelayStatusStore.shared
+        let attempt = await tracker.begin(.historyUpload, base: base)
+        do {
+            let data = try await historyData(Self.historyUploadRequest(batch, base: base))
+            struct Receipt: Decodable { let accepted: Int; let deleted: Int; let epoch: String }
+            guard let receipt = try? JSONDecoder().decode(Receipt.self, from: data),
+                  receipt.accepted == batch.records.count, receipt.deleted == batch.deletedIDs.count,
+                  receipt.epoch == batch.epoch else {
+                throw RelayFailure(code: "historyReceipt", message: "历史批次回执未通过验证，进度未前移；已保存的数据可安全重试。", reachedServer: true)
+            }
+            await tracker.succeed(attempt)
+        } catch {
+            await tracker.fail(attempt, error: error)
+            throw error
+        }
     }
     private func historyData(_ request: URLRequest) async throws -> Data {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil; configuration.httpCookieStorage = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-        let result: (Data, URLResponse)
-        do { result = try await session.data(for: request) }
-        catch { throw RelayFailure(code: "historyNetwork", message: "历史同步网络中断。请保持手机与 Mac 互通，再点击继续。") }
-        guard let response = result.1 as? HTTPURLResponse else { throw RelayFailure(code: "historyResponse", message: "历史服务响应无法识别。") }
+        let (data, response) = try await responseData(request)
         switch response.statusCode {
-        case 200..<300: return result.0
-        case 404: throw RelayFailure(code: "historyUpgrade", message: "服务没有历史接口，请先拉取新版并运行 setup-backend.sh，重启 Go 服务。")
-        case 409: throw RelayFailure(code: "historyReset", message: "服务器历史已重置，请再次点击同步，从头重建归档。")
-        case 400, 413, 422: throw RelayFailure(code: "historyInvalid", message: "服务拒绝历史批次，请确认 App 与后端均为 0.4.0 或更新版本。")
-        case 300..<400: throw RelayFailure(code: "redirectBlocked", message: "历史服务发生重定向，已停止传送健康信息。")
-        default: throw RelayFailure(code: "historyHTTP", message: "历史服务暂不可用（HTTP \(response.statusCode)）。已确认批次保留。")
+        case 200..<300: return data
+        case 404: throw RelayFailure(code: "historyUpgrade", message: "服务没有历史接口，请先拉取新版并运行 setup-backend.sh，重启 Go 服务。", reachedServer: true)
+        case 409: throw RelayFailure(code: "historyReset", message: "服务器历史已重置，请再次点击同步，从头重建归档。", reachedServer: true)
+        case 400, 413, 422: throw RelayFailure(code: "historyInvalid", message: "服务拒绝历史批次，请确认 App 与后端均为 0.4.0 或更新版本。", reachedServer: true)
+        case 300..<400: throw RelayFailure(code: "redirectBlocked", message: "历史服务发生重定向，已停止传送健康信息。", reachedServer: true)
+        default: throw RelayFailure(code: "historyHTTP", message: "历史服务已响应但请求未完成（HTTP \(response.statusCode)）。已确认批次保留。", reachedServer: true)
         }
     }
 }

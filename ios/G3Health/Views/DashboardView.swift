@@ -35,6 +35,11 @@ struct DashboardView: View {
                     if let message = model.errorMessage { messageView(message, isError: true) }
                     else if let notice = model.notice { messageView(notice, isError: false) }
 
+                    if model.serverConfigured && !model.isDemo {
+                        RelayStatusView()
+                            .padding(14).background(Palette.card, in: RoundedRectangle(cornerRadius: 16))
+                    }
+
                     if let snapshot = model.displayedSnapshot {
                         freshness(snapshot)
                         SleepCard(sleep: snapshot.sleep)

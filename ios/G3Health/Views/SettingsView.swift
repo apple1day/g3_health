@@ -22,6 +22,7 @@ struct SettingsView: View {
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityLabel("同步服务根地址")
                     Button("保存同步配置") { model.saveConnection(base: baseURL) }
+                        .disabled(model.isUploading || model.isCheckingConnection)
                     Button {
                         Task { await model.uploadNow() }
                     } label: {
@@ -31,9 +32,7 @@ struct SettingsView: View {
                             if model.isUploading { ProgressView() }
                         }
                     }.disabled(!model.mayUpload)
-                    if let date = model.lastUploadAt {
-                        LabeledContent("上次上传", value: date.formatted(date: .abbreviated, time: .shortened))
-                    }
+                    if model.serverConfigured { RelayStatusView() }
                 } header: { Text("眼镜同步") } footer: {
                     Text("只填写服务根地址，无需 Token 或登录。当前仅适合可信局域网：能访问服务的人也能查看、上传或删除健康数据，请勿映射公网。Debug 版支持局域网 HTTP，正式版仍要求 HTTPS。")
                 }
@@ -63,7 +62,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("版本", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "3"))")
+                    LabeledContent("版本", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.4.1") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "5"))")
                     LabeledContent("HealthKit 可用", value: model.healthAvailable ? "是" : "否，请用真机测试")
                     Button("生成脱敏诊断文件") { model.exportDiagnostics() }
                     if let file = model.diagnosticsURL {
