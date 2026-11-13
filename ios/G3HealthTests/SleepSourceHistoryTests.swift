@@ -101,8 +101,10 @@ final class SleepSourceHistoryTests: XCTestCase {
         var a = sample("a", name: "=OPPO,\"Health\"\nApp")
         a.label = "睡眠,未分类"
         let data = SleepHistoryExport.csv(records: [a, sample("other", source: apple)], sourceID: oppo)
-        let csv = try XCTUnwrap(String(data: data, encoding: .utf8))
-        XCTAssertTrue(csv.hasPrefix("\u{FEFF}id,"))
+        // Foundation may consume the UTF-8 BOM when decoding. Verify the file bytes first.
+        XCTAssertEqual(Array(data.prefix(3)), [0xEF, 0xBB, 0xBF])
+        let csv = try XCTUnwrap(String(data: Data(data.dropFirst(3)), encoding: .utf8))
+        XCTAssertTrue(csv.hasPrefix("id,"))
         XCTAssertTrue(csv.contains("\"'=OPPO,\"\"Health\"\"\nApp\""))
         XCTAssertTrue(csv.contains("\"睡眠,未分类\""))
         XCTAssertTrue(csv.contains("\"2026-11-01T22:00:00.000Z\""))
