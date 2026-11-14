@@ -87,8 +87,10 @@ final class RelayConfirmationTests: XCTestCase {
     }
 
     func testInvalidNanoDateDoesNotConfirmStoredUpload() async throws {
-        RelayProtocolStub.reset([.http(200, json(#"{\"receivedAt\":\"2026-11-14T04:30:45.1234567890Z\"}"#)),
-                                 .http(404, json("{}"))])
+        let malformed = try JSONSerialization.data(withJSONObject: [
+            "receivedAt": "2026-11-14T04:30:45.1234567890Z"
+        ])
+        RelayProtocolStub.reset([.http(200, malformed), .http(404, json("{}"))])
         do {
             _ = try await client.upload(snapshot, base: base)
             XCTFail("Invalid 10-digit precision must not be confirmed")
