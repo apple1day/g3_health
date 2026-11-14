@@ -94,8 +94,6 @@ struct HealthSnapshot: Codable, Sendable {
             let container = try decoder.singleValueContainer()
             let text = try container.decode(String.self)
             let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: text) { return date }
             formatter.formatOptions = [.withInternetDateTime]
             if let date = formatter.date(from: text) { return date }
 
