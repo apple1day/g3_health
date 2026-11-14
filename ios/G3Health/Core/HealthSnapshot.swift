@@ -111,7 +111,7 @@ struct HealthSnapshot: Codable, Sendable {
                     let remainder = text[text.index(after: dot)...]
                     let fractionText = String(remainder.prefix(while: { $0.isNumber && $0.isASCII }))
                     let suffix = remainder.dropFirst(fractionText.count)
-                    if let whole = formatter.date(from: String(prefix) + suffix),
+                    if let whole = formatter.date(from: String(prefix) + String(suffix)),
                        let fraction = Double("0." + fractionText) {
                         return whole.addingTimeInterval(fraction)
                     }
