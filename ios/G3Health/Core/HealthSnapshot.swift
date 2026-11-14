@@ -98,6 +98,25 @@ struct HealthSnapshot: Codable, Sendable {
             if let date = formatter.date(from: text) { return date }
             formatter.formatOptions = [.withInternetDateTime]
             if let date = formatter.date(from: text) { return date }
+
+            // Go's encoding/json writes time.Time as RFC3339Nano (1...9 fractional
+            // digits). ISO8601DateFormatter can reject fractions other than three
+            // digits. Parse the timezone-aware whole-second timestamp first, then
+            // add the fractional seconds without rounding them to milliseconds.
+            let pattern = #"^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})\\.([0-9]{1,9})(Z|[+-][0-9]{2}:[0-9]{2})$"#
+            if let range = text.range(of: pattern, options: .regularExpression) {
+                let value = String(text[range])
+                if value == text, let dot = text.firstIndex(of: ".") {
+                    let prefix = text[..<dot]
+                    let remainder = text[text.index(after: dot)...]
+                    let fractionText = String(remainder.prefix(while: { $0.isNumber && $0.isASCII }))
+                    let suffix = remainder.dropFirst(fractionText.count)
+                    if let whole = formatter.date(from: String(prefix) + suffix),
+                       let fraction = Double("0." + fractionText) {
+                        return whole.addingTimeInterval(fraction)
+                    }
+                }
+            }
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO8601 date")
         }
         return decoder
