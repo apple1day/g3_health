@@ -66,7 +66,7 @@ final class RelayConfirmationTests: XCTestCase {
             let receipt = try await client.upload(snapshot, base: base)
             XCTAssertFalse(receipt.recoveredByReadback)
             XCTAssertEqual(receipt.receivedAt.timeIntervalSince1970,
-                           1_763_080_245 + (Double("0." + fraction) ?? 0),
+                           1_794_630_645 + (Double("0." + fraction) ?? 0),
                            accuracy: 0.001)
             XCTAssertEqual(RelayProtocolStub.requests.count, 1)
         }
@@ -81,7 +81,8 @@ final class RelayConfirmationTests: XCTestCase {
         let receipt = try await client.upload(snapshot, base: base)
         XCTAssertTrue(receipt.recoveredByReadback)
         XCTAssertEqual(RelayProtocolStub.requests.map(\\.httpMethod), ["PUT", "GET"])
-        XCTAssertNotNil((await state()).lastSnapshotAt)
+        let status = await state()
+        XCTAssertNotNil(status.lastSnapshotAt)
     }
 
     func testInvalidNanoDateDoesNotConfirmStoredUpload() async throws {
