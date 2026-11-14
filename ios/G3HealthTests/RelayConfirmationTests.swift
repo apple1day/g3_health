@@ -58,6 +58,43 @@ final class RelayConfirmationTests: XCTestCase {
     }
     private func state() async -> RelaySyncState { await RelayStatusStore.shared.state }
 
+    func testGoRFC3339NanoReceiptsConfirmPUTForEveryFractionLength() async throws {
+        for digits in 1...9 {
+            let fraction = String(repeating: "1", count: digits)
+            let timestamp = "2026-11-14T12:30:45.\(fraction)+08:00"
+            RelayProtocolStub.reset([.http(200, json("{\\"receivedAt\\":\\"\(timestamp)\\"}"))])
+            let receipt = try await client.upload(snapshot, base: base)
+            XCTAssertFalse(receipt.recoveredByReadback)
+            XCTAssertEqual(receipt.receivedAt.timeIntervalSince1970,
+                           1_763_080_245 + (Double("0." + fraction) ?? 0),
+                           accuracy: 0.001)
+            XCTAssertEqual(RelayProtocolStub.requests.count, 1)
+        }
+    }
+
+    func testGoRFC3339NanoStoredSnapshotCanConfirmLostPUT() async throws {
+        let original = try envelope(snapshot)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
+        object["receivedAt"] = "2026-11-14T04:30:45.123456789Z"
+        let stored = try JSONSerialization.data(withJSONObject: object)
+        RelayProtocolStub.reset([.failure(.timedOut), .http(200, stored)])
+        let receipt = try await client.upload(snapshot, base: base)
+        XCTAssertTrue(receipt.recoveredByReadback)
+        XCTAssertEqual(RelayProtocolStub.requests.map(\\.httpMethod), ["PUT", "GET"])
+        XCTAssertNotNil((await state()).lastSnapshotAt)
+    }
+
+    func testInvalidNanoDateDoesNotConfirmStoredUpload() async throws {
+        RelayProtocolStub.reset([.http(200, json(#"{\"receivedAt\":\"2026-11-14T04:30:45.1234567890Z\"}"#)),
+                                 .http(404, json("{}"))])
+        do {
+            _ = try await client.upload(snapshot, base: base)
+            XCTFail("Invalid 10-digit precision must not be confirmed")
+        } catch let failure as RelayFailure {
+            XCTAssertEqual(failure.code, "invalidReceipt")
+        }
+    }
+
     func testAcknowledgedUploadRecordsSuccessWithoutToken() async throws {
         RelayProtocolStub.reset([.http(200, json("{\"receivedAt\":\"2023-11-14T22:13:21Z\"}"))])
         let receipt = try await client.upload(snapshot, base: base)
