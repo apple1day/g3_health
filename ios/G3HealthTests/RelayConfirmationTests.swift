@@ -62,7 +62,8 @@ final class RelayConfirmationTests: XCTestCase {
         for digits in 1...9 {
             let fraction = String(repeating: "1", count: digits)
             let timestamp = "2026-11-14T12:30:45.\(fraction)+08:00"
-            RelayProtocolStub.reset([.http(200, json("{\\"receivedAt\\":\\"\(timestamp)\\"}"))])
+            let receiptJSON = try JSONSerialization.data(withJSONObject: ["receivedAt": timestamp])
+            RelayProtocolStub.reset([.http(200, receiptJSON)])
             let receipt = try await client.upload(snapshot, base: base)
             XCTAssertFalse(receipt.recoveredByReadback)
             XCTAssertEqual(receipt.receivedAt.timeIntervalSince1970,
@@ -80,7 +81,7 @@ final class RelayConfirmationTests: XCTestCase {
         RelayProtocolStub.reset([.failure(.timedOut), .http(200, stored)])
         let receipt = try await client.upload(snapshot, base: base)
         XCTAssertTrue(receipt.recoveredByReadback)
-        XCTAssertEqual(RelayProtocolStub.requests.map(\\.httpMethod), ["PUT", "GET"])
+        XCTAssertEqual(RelayProtocolStub.requests.map(\.httpMethod), ["PUT", "GET"])
         let status = await state()
         XCTAssertNotNil(status.lastSnapshotAt)
     }
