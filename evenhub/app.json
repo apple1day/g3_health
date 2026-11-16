@@ -2,14 +2,14 @@
   "package_id": "com.anxiong.healthglance",
   "edition": "202601",
   "name": "健康速览",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "min_sdk_version": "0.0.16",
   "min_app_version": "2.2.10",
   "entrypoint": "index.html",
   "permissions": [
     {
       "name": "network",
-      "desc": "从你配置的个人服务读取已同步的睡眠、活动和运动摘要。",
+      "desc": "从你配置的个人服务读取健康摘要，以及按日期、类型和来源筛选的历史记录。",
       "whitelist": [
         "http://localhost:8787",
         "http://127.0.0.1:8787"

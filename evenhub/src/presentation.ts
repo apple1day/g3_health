@@ -1,7 +1,8 @@
 import type { Snapshot, SectionStatus } from './model';
-export const PAGES = ['sleep', 'activity', 'workout', 'heartRate'] as const;
+export const PAGES = ['sleep', 'activity', 'workout', 'heartRate', 'history'] as const;
 export type Page = typeof PAGES[number];
-export const LABELS: Record<Page, string> = { sleep: '睡眠', activity: '活动', workout: '运动', heartRate: '心率' };
+export type SnapshotPage = Exclude<Page, 'history'>;
+export const LABELS: Record<Page, string> = { sleep: '睡眠', activity: '活动', workout: '运动', heartRate: '心率', history: '历史' };
 export function metric(value: number | null | undefined, suffix = '', decimals = 0): string {
   return value == null ? '暂无数据' : `${value.toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}${suffix}`;
 }
@@ -27,14 +28,14 @@ function unavailable(status: SectionStatus): string[] {
   return status === 'error' ? ['读取暂未成功', '请打开 iPhone App 刷新后再同步。'] : ['暂无可读取数据', '可能未记录、未同步或未允许读取。'];
 }
 export interface GlassContent { title: string; hero: string; lines: string[]; footer: string; }
-export function contentFor(snapshot: Snapshot | null, page: Page, options: { cached?: boolean; now?: number } = {}): GlassContent {
+export function contentFor(snapshot: Snapshot | null, page: SnapshotPage, options: { cached?: boolean; now?: number } = {}): GlassContent {
   const number = PAGES.indexOf(page) + 1;
-  if (!snapshot) return { title:`健康速览  ${number}/4`, hero:'先在手机中完成设置', lines:['填写个人服务地址和只读密钥。', '在 iPhone App 读取并上传摘要。', '也可在手机上开启演示模式。'], footer:'上下滑动切页  单击刷新  双击退出' };
+  if (!snapshot) return { title:`健康速览  ${number}/${PAGES.length}`, hero:'先在手机中完成设置', lines:['填写个人服务地址，无需密钥。', '在 iPhone App 读取并上传摘要。', '也可在手机上开启演示模式。'], footer:'上下滑动切页  单击刷新  双击退出' };
   const prefix = snapshot.dataMode === 'demo' ? '[演示] ' : options.cached ? '[缓存] ' : '';
   const fresh = freshness(snapshot.generatedAt, options.now);
   const footer = `${prefix}${fresh.text}  ${time(snapshot.generatedAt, snapshot.timeZone, true)}`;
   const status = snapshot[page].status;
-  const title = `${prefix}${LABELS[page]}  ${number}/4  ${snapshot.day}`;
+  const title = `${prefix}${LABELS[page]}  ${number}/${PAGES.length}  ${snapshot.day}`;
   if (status !== 'ok') { const lines = unavailable(status); return { title,hero:lines[0],lines:lines.slice(1),footer }; }
   if (page === 'sleep') {
     const s = snapshot.sleep;
