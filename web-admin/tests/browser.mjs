@@ -161,6 +161,165 @@ try {
  await page.screenshot({ path: '../artifacts/admin/raw-history-mobile.png', fullPage: true });
  await page.getByRole('button', { name: '数据总览' }).click();
 
+ // The Even archive reads raw records independently of the latest snapshot.
+ // Add one opaque source ID after the existing two-source admin assertions.
+ const exactSource = 'TEST.oppo.health ';
+ const exactRecord = {
+  ...records[0], id: '10000000-0000-4000-8000-000000000001',
+  sourceID: exactSource, sourceName: 'CI Exact Source', device: '', isAppleWatch: false,
+ };
+ assert.equal((await call('/v1/history/batch', 'PUT', { ...batch, records: [exactRecord] })).status, 200);
+ const archive = await browser.newPage({ viewport: { width: 1440, height: 1060 }, locale: 'zh-CN', timezoneId: 'UTC' });
+ archive.on('pageerror', e => exceptions.push(e.message));
+ const archiveRequests = [];
+ archive.on('request', request => {
+  if (new URL(request.url()).pathname.startsWith('/v1/history/')) archiveRequests.push(request);
+ });
+ await archive.route(base + '/v1/snapshot', route => route.fulfill({
+  status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No health snapshot has been uploaded yet.' }),
+ }));
+ const rows = archive.locator('#history-records button[data-row-id]');
+ const historyResponse = predicate => archive.waitForResponse(response => {
+  const url = new URL(response.url());
+  return url.origin === base && url.pathname === '/v1/history/records' && predicate(url.searchParams);
+ });
+ await archive.goto(pluginURL);
+ await archive.locator('#api-url').fill(base);
+ await archive.locator('#refresh').click();
+ await expect(archive.locator('#request-status')).toContainText('还没有健康摘要');
+ await archive.locator('#tab-history').click();
+ await expect(archive.locator('#history-count')).toHaveText('121 条原始记录');
+ await expect(rows).toHaveCount(50);
+ await expect(archive.locator('#mode-pill')).toHaveText('真实记录');
+ await expect(archive.locator('#history-page')).toHaveText('第 1 页 · 本页 50 条');
+ await expect(archive.locator('#history-overview')).toContainText('121 条原始记录');
+ await expect(archive.locator('#history-coverage')).toContainText('CI OPPO 健康 · 60 条原始记录');
+ await expect(archive.locator('#history-coverage')).toContainText('2018/01/01');
+
+ // Full-range source counts stay at 60 while only 50 or 10 rows are displayed.
+ await archive.locator('#history-source').selectOption('test.oppo.health');
+ await expect(archive.locator('#history-count')).toHaveText('60 条原始记录');
+ await expect(rows).toHaveCount(50);
+ assert.ok((await rows.allTextContents()).every(text => text.includes('CI OPPO 健康')));
+ const firstPageIDs = await rows.evaluateAll(buttons => buttons.map(button => button.dataset.rowId));
+ await rows.nth(1).click();
+ await expect(rows.nth(1)).toHaveAttribute('aria-pressed', 'true');
+ await expect(archive.locator('#glass-preview')).toContainText('CI OPPO 健康');
+ await expect(archive.locator('#glass-preview')).toContainText('2018/01/01');
+ await expect(archive.locator('#glass-preview')).toContainText('单条睡眠区间');
+ await archive.locator('#history-older').click();
+ await expect(archive.locator('#history-page')).toHaveText('第 2 页 · 本页 10 条');
+ await expect(rows).toHaveCount(10);
+ await expect(archive.locator('#history-count')).toHaveText('60 条原始记录');
+ await expect(archive.locator('#history-coverage')).toContainText('CI OPPO 健康 · 60 条原始记录');
+ await expect(archive.locator('#history-older')).toBeDisabled();
+ const secondPageIDs = await rows.evaluateAll(buttons => buttons.map(button => button.dataset.rowId));
+ assert.ok(secondPageIDs.every(id => !firstPageIDs.includes(id)), 'archive pagination repeated a tied-timestamp row');
+ await archive.locator('#history-newer').click();
+ await expect(archive.locator('#history-page')).toHaveText('第 1 页 · 本页 50 条');
+ assert.deepEqual(await rows.evaluateAll(buttons => buttons.map(button => button.dataset.rowId)), firstPageIDs);
+ await archive.locator('#history-older').click();
+ await expect(archive.locator('#history-page')).toHaveText('第 2 页 · 本页 10 条');
+ const appleResponse = historyResponse(query => query.get('sourceID') === 'test.apple.watch');
+ await archive.locator('#history-source').selectOption('test.apple.watch');
+ assert.equal(new URL((await appleResponse).url()).searchParams.get('cursor') ?? '', '', 'new source reused the previous source cursor');
+ await expect(archive.locator('#history-page')).toHaveText('第 1 页 · 本页 50 条');
+ await expect(rows).toHaveCount(50);
+ assert.ok((await rows.allTextContents()).every(text => text.includes('CI Apple Watch')), 'new source retained old rows');
+ await expect(archive.locator('#glass-preview')).toContainText('CI Apple Watch');
+
+ const exactResponse = historyResponse(query => query.get('sourceID') === exactSource);
+ await archive.locator('#history-source').selectOption(exactSource);
+ assert.equal(new URL((await exactResponse).url()).searchParams.get('sourceID'), exactSource, 'opaque source ID was normalized');
+ await expect(archive.locator('#history-count')).toHaveText('1 条原始记录');
+ await expect(rows).toHaveCount(1);
+ await expect(rows.first()).toContainText('CI Exact Source');
+
+ // Both date boundaries and kind changes clear the old selection and cursor.
+ await archive.locator('#history-from').fill('2019-01-01');
+ await expect(archive.locator('#history-count')).toHaveText('0 条原始记录');
+ const dateResponse = historyResponse(query => query.get('from') === '2019-01-01' && query.get('to') === '2019-12-31');
+ await archive.locator('#history-to').fill('2019-12-31');
+ await dateResponse;
+ await expect(rows).toHaveCount(0);
+ await expect(archive.locator('#glass-preview')).not.toContainText('CI Exact Source');
+ await expect(archive.locator('#history-coverage')).not.toContainText('1 条原始记录');
+ await archive.locator('#history-all-dates').click();
+ await expect(rows).toHaveCount(1);
+ await archive.locator('#history-kind').selectOption('heartRate');
+ await expect(archive.locator('#history-count')).toHaveText('0 条原始记录');
+ await expect(rows).toHaveCount(0);
+ await archive.locator('#history-kind').selectOption('sleep');
+ await expect(rows).toHaveCount(1);
+ await archive.locator('#history-source').selectOption('test.oppo.health');
+ await expect(archive.locator('#history-count')).toHaveText('60 条原始记录');
+ await expect(rows).toHaveCount(50);
+
+ const recordsPattern = base + '/v1/history/records*';
+ await archive.route(recordsPattern, route => route.abort());
+ await archive.locator('#history-refresh').click();
+ await expect(archive.locator('#mode-pill')).toHaveText('缓存记录');
+ await expect(archive.locator('#history-count')).toHaveText('60 条原始记录 · 缓存');
+ await expect(archive.locator('#glass-title')).toContainText('[缓存]');
+ await expect(archive.locator('#glass-preview')).toContainText('CI OPPO 健康');
+ await archive.unroute(recordsPattern);
+ const requestsBeforeDemo = archiveRequests.length;
+ await archive.locator('#demo-toggle').click();
+ await expect(archive.locator('#mode-pill')).toHaveText('演示数据');
+ await expect(rows).toHaveCount(0);
+ await expect(archive.locator('#history-source')).toBeDisabled();
+ await expect(archive.locator('#glass-preview')).not.toContainText('CI OPPO 健康');
+ await archive.locator('#tab-heartRate').click();
+ await archive.locator('#tab-history').click();
+ assert.equal(archiveRequests.length, requestsBeforeDemo, 'demo mode read personal history');
+ await archive.locator('#demo-toggle').click();
+ await expect(archive.locator('#history-count')).toHaveText('121 条原始记录');
+ await expect(archive.locator('#mode-pill')).toHaveText('真实记录');
+ await archive.setViewportSize({ width: 390, height: 844 });
+ assert.ok(await archive.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'history mobile horizontal overflow');
+ await archive.screenshot({ path: '../artifacts/admin/plugin-history-mobile.png', fullPage: true });
+
+ // Let a response finish after the address changes even if cancellation is ignored.
+ // This verifies the generation guard as well as the normal AbortController path.
+ await archive.evaluate(() => {
+  const original = window.fetch.bind(window);
+  window.restoreHistoryTestFetch = () => { window.fetch = original; delete window.restoreHistoryTestFetch; };
+  window.fetch = (input, options) => {
+   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+   return original(input, new URL(url, location.href).pathname === '/v1/history/records' ? { ...options, signal: undefined } : options);
+  };
+ });
+ let releaseHistory;
+ const release = new Promise(resolve => { releaseHistory = resolve; });
+ await archive.route(recordsPattern, async route => {
+  const response = await route.fetch();
+  await release;
+  await route.fulfill({ response });
+ });
+ const historyRequested = archive.waitForRequest(request => {
+  const url = new URL(request.url());
+  return url.origin === base && url.pathname === '/v1/history/records';
+ });
+ await archive.locator('#history-refresh').click();
+ await historyRequested;
+ await archive.locator('#api-url').fill('http://127.0.0.1:8788');
+ await expect(rows).toHaveCount(0);
+ const lateResponse = historyResponse(() => true);
+ releaseHistory();
+ assert.equal(await (await lateResponse).finished(), null, 'delayed response did not complete');
+ await archive.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+ await expect(archive.locator('#history-count')).toHaveText('尚未读取');
+ await expect(rows).toHaveCount(0);
+ await expect(archive.locator('#glass-preview')).not.toContainText('CI OPPO 健康');
+ await archive.evaluate(() => window.restoreHistoryTestFetch());
+ await archive.unroute(recordsPattern);
+ assert.ok(archiveRequests.length > 0 && archiveRequests.every(request => !request.headers().authorization), 'history sent credentials');
+ assert.equal(await archive.evaluate(() => localStorage.getItem('g3-health.connection.v1')), null, 'archive persisted data without consent');
+ await archive.locator('#clear-config').click();
+ await expect(archive.locator('#api-url')).toHaveValue('');
+ await expect(rows).toHaveCount(0);
+ await archive.close();
+
  assert.deepEqual(exceptions, []);
  assert.equal((await call('/v1/snapshot', 'DELETE')).status, 204);
  assert.equal((await (await call('/api/admin/overview')).json()).snapshotCount, 0);
@@ -168,5 +327,5 @@ try {
  assert.equal((await call('/v1/history/batch', 'PUT', batch)).status, 409, 'deleted data resurrected by in-flight upload');
  await page.getByRole('button', { name: '刷新数据' }).click();
  await page.getByText('等待第一份健康摘要').waitFor();
- console.log('PASS: no-token Gin/MySQL upload/read/delete, history, Vue auto-load/reload/mobile, Even no-token read/cache/legacy-config migration.');
+ console.log('PASS: no-token Gin/MySQL upload/read/delete, history, Vue auto-load/reload/mobile, Even summary and source/date archive paging, cache/demo/address-race isolation and legacy-config migration.');
 } finally { plugin.kill(); await browser.close(); }

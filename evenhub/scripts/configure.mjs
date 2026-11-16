@@ -26,4 +26,4 @@ const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 manifest.permissions.find(permission => permission.name === 'network').whitelist = [url.origin];
 await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 console.log(`已将 network.whitelist 设置为 ${url.origin}`);
-console.log('请重新 build、pack；手机配置页填写相同服务地址与只读密钥。');
+console.log('请重新 build、pack；手机配置页只填写相同服务地址，无需 Token。');

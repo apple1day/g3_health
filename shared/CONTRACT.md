@@ -41,3 +41,17 @@ On failure keep prior data visibly marked cached with timestamps; never replace 
 Deleting remote history requires confirmation in iPhone UI; the API itself is deliberately unauthenticated.
 
 The historical Python implementation under server/ retains its old scoped-token contract; it is not the current default and cannot be used with 0.3 clients without authentication changes.
+
+## Even history reader (plugin 0.5)
+
+The latest snapshot contract above is unchanged. The plugin reads the Gin history endpoints independently:
+
+- `GET /v1/history/status`: `{epoch, count, counts, earliest, latest}`. Counts are archived sample counts, not proof of complete synchronization. Empty stores have null earliest/latest.
+- `GET /v1/history/records?kind=&from=&to=&sourceID=&limit=50&cursor=`: `{items:[{rowID,sample,receivedAt}],total,nextCursor,sources}`. An empty nextCursor means no older page. Cursors are opaque. Changing filters starts from the first page.
+- `sources` lists `{sourceID,sourceName,count,earliest,latest}` for the entire type/date range, independent of the selected source and pagination. Source IDs are exact strings, including case and trailing spaces. The plugin does not use display names as identities.
+- `from/to` are inclusive sample start dates in each sample's saved timeZone. They are not sleep-summary noon-to-noon buckets. Records are ordered by startedAt descending, then rowID descending.
+- `sample.kind` is sleep, steps, distance, activeEnergy, exercise, heartRate, workout or activitySummary. These are raw records, not cross-source totals. Sleep categories 0/1/2/3/4/5 mean in-bed/unspecified/awake/core/deep/REM; other categories stay unknown. The plugin never derives nightly totals from a partial page.
+- The fifth glasses page shows a single selected archived record. Sample times include the year and use the sample timeZone. receivedAt is labelled as receipt time, never measurement time.
+- The reader uses no credentials and never sends writes. Old servers without history report an independent history error; servers without sources can still serve unfiltered history. Explicit source filters require the 0.5 response and exact matching returned records.
+
+See `backend/internal/history/model.go` for the complete sample schema and `docs/HISTORY.md` for upload and archive semantics.
